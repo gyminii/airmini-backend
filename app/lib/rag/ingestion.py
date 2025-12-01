@@ -10,18 +10,16 @@ from crawl4ai import AsyncWebCrawler, BrowserConfig, CrawlerRunConfig
 def normalize_page_content(text: str) -> str:
     return clean(
         text,
-        fix_unicode=True,
-        to_ascii=False,
-        lower=False,
-        no_line_breaks=False,
-        no_urls=False,
-        no_emails=False,
-        no_phone_numbers=False,
-        no_numbers=False,
-        no_digits=False,
-        no_punct=False,
-        replace_with_url=" ",
-        replace_with_email=" ",
+        clean_all=False,
+        extra_spaces=True,
+        stemming=False,
+        stopwords=False,
+        lowercase=False,
+        numbers=False,
+        punct=False,
+        reg="",  # no regex
+        reg_replace="",  # no regex replacement
+        stp_lang="english",
     )
 
 
