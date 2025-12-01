@@ -20,11 +20,11 @@ async def test_graph_query(question: str):
         "retry_count": 0,
     }
 
-    async with get_graph() as graph:
-        result = await graph.ainvoke(
-            test_state,
-            config={"configurable": {"thread_id": "test-123"}},
-        )
+    graph = get_graph()
+    result = await graph.ainvoke(
+        test_state,
+        config={"configurable": {"thread_id": "test-123"}},
+    )
 
     print(f"\n{'='*50}")
     print(f"Query type: {result.get('query_type')}")

@@ -32,7 +32,10 @@ async def create_chat_message(
 
     print(f"User: {user_id}")
 
-    # Step 2: Get or create chat session
+    # getting | creating session
+    # idk if this is ideal but i thought it would be
+    # more efficient doing conditional id assignment
+    # as functionally it does the same thing
     if request.session_id:
         try:
             chat_uuid = uuid.UUID(request.session_id)
@@ -56,7 +59,7 @@ async def create_chat_message(
 
     print(f"Chat ID: {chat.id}")
 
-    # Step 3: Check/update trip context
+    # check/ updating trip context
     trip_context_result = await db.execute(
         select(TripContextORM).where(TripContextORM.chat_id == chat.id)
     )
@@ -111,7 +114,7 @@ async def create_chat_message(
 
     needs_onboarding = trip_context_orm is None
 
-    # Convert ORM to dict for agent
+    # ORM -> Dict
     trip_context_dict = None
     if trip_context_orm:
         trip_context_dict = {
@@ -136,14 +139,14 @@ async def create_chat_message(
             "purpose": trip_context_orm.purpose,
         }
 
-    # Step 4: Save user message (ONLY ONCE!)
+    # saving user msg
     user_message = MessageORM(
         chat_id=chat.id, role=MessageRole.USER, content=request.message
     )
     db.add(user_message)
     await db.flush()
 
-    # Step 5: Load conversation history
+    # loading chat history limiting to 20
     messages_result = await db.execute(
         select(MessageORM)
         .where(MessageORM.chat_id == chat.id)
@@ -152,7 +155,7 @@ async def create_chat_message(
     )
     message_history = messages_result.scalars().all()
 
-    # Convert to LangChain messages
+    # storing in langchian message
     lc_messages = []
     for msg in message_history[:-1]:  # Exclude current message
         if msg.role == MessageRole.USER:
@@ -160,14 +163,13 @@ async def create_chat_message(
         elif msg.role == MessageRole.ASSISTANT:
             lc_messages.append(AIMessage(content=msg.content))
 
-    # Add current message
+    # adding user's msg
     lc_messages.append(HumanMessage(content=request.message))
 
-    # Step 6: Run LangGraph agent
     print(f"Running agent with {len(lc_messages)} messages...")
 
     graph_state = {
-        "messages": lc_messages,  # FIXED: Use conversation history
+        "messages": lc_messages,
         "trip_context": trip_context_dict,
         "query": None,
         "query_type": None,
@@ -182,25 +184,26 @@ async def create_chat_message(
         "retry_count": 0,
     }
 
-    async with get_graph() as graph:
-        result = await graph.ainvoke(
-            graph_state, config={"configurable": {"thread_id": str(chat.id)}}
-        )
+    graph = get_graph()
 
+    result = await graph.ainvoke(
+        graph_state, config={"configurable": {"thread_id": str(chat.id)}}
+    )
+
+    # retrieving ai msg
     ai_response = result["messages"][-1].content
     print(f"Agent response: {ai_response[:100]}...")
 
-    # Step 7: Save AI response
+    # saving ai msg
     ai_message = MessageORM(
         chat_id=chat.id, role=MessageRole.ASSISTANT, content=ai_response
     )
     db.add(ai_message)
 
-    # Step 8: Commit everything
+    # commit the changes
     await db.commit()
     print("Committed to DB")
 
-    # Step 9: Return response
     return ChatResponse(
         message=ai_response,
         session_id=str(chat.id),
