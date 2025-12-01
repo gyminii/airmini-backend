@@ -49,7 +49,6 @@ Thumbs.db
 # -----------------------------
 alembic/versions/__pycache__/
 alembic/versions/*.pyc
-
 # If you auto-generate migration scripts you don't want to commit yet:
 # alembic/versions/*.py
 
