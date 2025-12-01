@@ -1,15 +1,7 @@
-"""
-Script to ingest documents into the vector database
-
-Usage:
-    python scripts/ingest_documents.py
-"""
-
 import asyncio
 
 from app.lib.rag.ingestion import ingest_documents_batch
 
-# Define your sources here
 SOURCES = [
     # ============================================
     # USA - TSA & FAA

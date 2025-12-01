@@ -7,15 +7,13 @@ from app.routers import api_router
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI):
-    # Startup
-    print("🚀 Application startup")
+async def lifespan(_app: FastAPI):
+    print("Application startup")
     await initialize_graph()
 
     yield
 
-    # Shutdown
-    print("🛑 Application shutdown")
+    print("Application shutdown")
     await shutdown_graph()
 
 

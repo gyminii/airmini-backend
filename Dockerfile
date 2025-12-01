@@ -45,21 +45,19 @@ COPY pyproject.toml uv.lock ./
 
 # --------------------------------------------------------
 # 6. Install Python dependencies with uv
-#    This creates an isolated environment under .venv
 # --------------------------------------------------------
 RUN uv sync --frozen
 
-# Make sure the .venv is used by default
 ENV PATH="/app/.venv/bin:${PATH}"
 
 # --------------------------------------------------------
-# 7. NLTK data (if still needed)
+# 7. NLTK data for cleandata.. going to be removed in the future
 # --------------------------------------------------------
 RUN python -m nltk.downloader -d /usr/local/share/nltk_data stopwords
 ENV NLTK_DATA=/usr/local/share/nltk_data
 
 # --------------------------------------------------------
-# 8. Copy rest of the project
+# 8. Copying project
 # --------------------------------------------------------
 COPY . .
 

@@ -14,12 +14,12 @@ _graph_instance = None
 _pool_instance = None
 
 
+# graph initializer
 async def initialize_graph():
-    """Initialize connection pool and compile graph"""
     global _graph_instance, _pool_instance
 
     db_uri = settings["database_url"]
-    print(f"🔗 Initializing graph with database...")
+    print(f"Initializing graph with database...")
 
     _pool_instance = AsyncConnectionPool(
         conninfo=db_uri,
@@ -28,7 +28,8 @@ async def initialize_graph():
         kwargs=CONNECTION_KWARGS,
         open=False,
     )
-    #
+    # Explicit calling instead of auto opening
+    # as we want to open on the lifespan
     await _pool_instance.open()
     print("Pool opened")
 
@@ -41,8 +42,8 @@ async def initialize_graph():
     print("Graph compiled successfully!")
 
 
+# Closing graph
 async def shutdown_graph():
-    """Close connection pool"""
     global _pool_instance
     if _pool_instance:
         await _pool_instance.close()
@@ -50,7 +51,6 @@ async def shutdown_graph():
 
 
 def get_graph():
-    """Get the compiled graph instance"""
     if _graph_instance is None:
         raise RuntimeError("Graph not initialized. Call initialize_graph() first.")
     return _graph_instance
