@@ -1,5 +1,5 @@
 from langchain_text_splitters import RecursiveCharacterTextSplitter
-from langchain_community.document_loaders import TextLoader, UnstructuredPDFLoader
+from langchain_community.document_loaders import TextLoader
 from app.lib.rag.vectorstore import add_documents
 from cleantext import clean
 from langchain_core.documents import Document
@@ -32,6 +32,15 @@ text_splitter = RecursiveCharacterTextSplitter(
 
 
 async def ingest_pdf(file_path: str) -> dict:
+
+    try:
+        from langchain_community.document_loaders import UnstructuredPDFLoader
+    except ImportError as e:
+        raise RuntimeError(
+            "UnstructuredPDFLoader requires the 'ingestion'"
+            "(unstructured[docx,pdf]) to be installed. "
+            "Run: uv sync --group ingestion"
+        ) from e
     loader = UnstructuredPDFLoader(file_path, strategy="hi_res")
     documents = loader.load()
 

@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Environments
+.venv/
+venv/
+env/
+
+# VCS
+.git
+.gitignore
+
+# OS
+.DS_Store
+
+# IDE/Editor
+.vscode/
+.idea/
+
+# Local data
+data/
+tests/
+notebooks/
+*.log
+
+# Node junk (if any)
+node_modules/
