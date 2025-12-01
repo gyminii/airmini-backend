@@ -14,7 +14,6 @@ pip-chill==1.0.3
 pipreqs==0.4.13
 platformdirs==4.2.2
 psycopg-binary==3.2.13
-psycopg2-binary==2.9.11
 tavily-python==0.7.13
 tomli==2.0.1
 uvicorn==0.38.0
