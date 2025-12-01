@@ -18,6 +18,10 @@ dependencies = [
     "langgraph-checkpoint-postgres>=3.0.1",
     "psycopg2-binary>=2.9.11",
     "tavily>=1.1.0",
-    "unstructured[docx,pdf]>=0.18.21",
     "uvicorn>=0.38.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "unstructured[docx,pdf]>=0.18.21",
 ]

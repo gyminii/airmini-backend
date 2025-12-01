@@ -3,9 +3,7 @@ from langchain_postgres import PGVector
 from langchain_openai import OpenAIEmbeddings
 from app.config import get_settings
 from langchain_community.document_transformers import EmbeddingsRedundantFilter
-from sqlalchemy.ext.asyncio import create_async_engine
 
-# from langchain.retrievers import ContextualCompressionRetriever
 settings = get_settings()
 
 embeddings = OpenAIEmbeddings(
@@ -80,7 +78,7 @@ async def add_documents(texts: list[str], metadatas: list[dict] = None):
     ]
 
     if not valid_data:
-        print("⚠️  All texts were empty after cleaning")
+        print(". All texts were empty after cleaning")
         return
 
     valid_texts = [item[0] for item in valid_data]

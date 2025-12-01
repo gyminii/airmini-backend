@@ -156,8 +156,12 @@ dependencies = [
     { name = "langgraph-checkpoint-postgres" },
     { name = "psycopg2-binary" },
     { name = "tavily" },
-    { name = "unstructured", extra = ["docx", "pdf"] },
     { name = "uvicorn" },
+]
+
+[package.optional-dependencies]
+dev = [
+    { name = "unstructured", extra = ["docx", "pdf"] },
 ]
 
 [package.metadata]
@@ -175,9 +179,10 @@ requires-dist = [
     { name = "langgraph-checkpoint-postgres", specifier = ">=3.0.1" },
     { name = "psycopg2-binary", specifier = ">=2.9.11" },
     { name = "tavily", specifier = ">=1.1.0" },
-    { name = "unstructured", extras = ["docx", "pdf"], specifier = ">=0.18.21" },
+    { name = "unstructured", extras = ["docx", "pdf"], marker = "extra == 'dev'", specifier = ">=0.18.21" },
     { name = "uvicorn", specifier = ">=0.38.0" },
 ]
+provides-extras = ["dev"]
 
 [[package]]
 name = "alembic"
