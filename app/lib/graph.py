@@ -2,24 +2,17 @@ from typing import TypedDict, Annotated, Optional, List, Dict
 from langgraph.graph import StateGraph, START, END
 from langchain_core.messages import BaseMessage, HumanMessage, AIMessage
 from langgraph.graph.message import add_messages
-from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
+
 from app.config import get_settings
 from app.lib.api.visa import check_visa_requirements
 from app.lib.api.web_search import search_web
 from app.lib.rag.vectorstore import similarity_search
 from app.database.models import TripContext
 from app.lib.llm import chat_model
-from psycopg_pool import AsyncConnectionPool
-from contextlib import asynccontextmanager
 from langgraph.types import Send
 import json
 
 settings = get_settings()
-
-CONNECTION_KWARGS = {
-    "autocommit": True,
-    "prepare_threshold": 0,
-}
 
 
 class State(TypedDict):
@@ -362,23 +355,9 @@ workflow.add_conditional_edges(
     "relevance_check", should_retry_search, {"end": END, "retry": "classify"}
 )
 
-
-@asynccontextmanager
-async def get_graph():
-    db_uri = settings["vectordb_url"]
-
-    async with AsyncConnectionPool(db_uri, kwargs=CONNECTION_KWARGS) as pool:
-        checkpointer = AsyncPostgresSaver(pool)
-        await checkpointer.setup()
-        graph = workflow.compile(checkpointer=checkpointer)
-
-        yield graph
-
-
-# graph = workflow.compile()
-
 if __name__ == "__main__":
     import asyncio
+    from app.lib.provider import get_graph
 
     async def test():
         test_state = {

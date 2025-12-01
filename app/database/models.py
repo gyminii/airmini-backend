@@ -15,8 +15,8 @@ class MessageRole(enum.Enum):
 
 
 class Language(enum.Enum):
-    EN = "en"
-    KO = "ko"
+    EN = "EN"
+    KO = "KO"
 
 
 def utcnow():

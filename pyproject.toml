@@ -1,0 +1,22 @@
+[project]
+name = "airmini-backend"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "alembic>=1.17.2",
+    "cleantext>=1.1.4",
+    "clerk-backend-api>=4.0.0",
+    "crawl4ai>=0.7.7",
+    "fastapi>=0.123.0",
+    "langchain>=1.1.0",
+    "langchain-community>=0.4.1",
+    "langchain-openai>=1.1.0",
+    "langchain-postgres>=0.0.16",
+    "langgraph>=1.0.4",
+    "langgraph-checkpoint-postgres>=3.0.1",
+    "psycopg2-binary>=2.9.11",
+    "tavily>=1.1.0",
+    "uvicorn>=0.38.0",
+]

@@ -29,30 +29,46 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # --------------------------------------------------------
-# 3. Set working directory
+# 3. Install uv (Python package manager)
+# --------------------------------------------------------
+RUN pip install --no-cache-dir uv
+
+# --------------------------------------------------------
+# 4. Set working directory
 # --------------------------------------------------------
 WORKDIR /app
 
 # --------------------------------------------------------
-# 4. Install dependencies
+# 5. Copy only project metadata first (better layer caching)
 # --------------------------------------------------------
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+COPY pyproject.toml uv.lock ./
 
+# --------------------------------------------------------
+# 6. Install Python dependencies with uv
+#    This creates an isolated environment under .venv
+# --------------------------------------------------------
+RUN uv sync --frozen
+
+# Make sure the .venv is used by default
+ENV PATH="/app/.venv/bin:${PATH}"
+
+# --------------------------------------------------------
+# 7. NLTK data (if still needed)
+# --------------------------------------------------------
 RUN python -m nltk.downloader -d /usr/local/share/nltk_data stopwords
 ENV NLTK_DATA=/usr/local/share/nltk_data
 
 # --------------------------------------------------------
-# 5. Copy entire project
+# 8. Copy rest of the project
 # --------------------------------------------------------
 COPY . .
 
 # --------------------------------------------------------
-# 6. Expose API port
+# 9. Expose API port
 # --------------------------------------------------------
 EXPOSE 8000
 
 # --------------------------------------------------------
-# 7. Start FastAPI server
+# 10. Start FastAPI server
 # --------------------------------------------------------
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

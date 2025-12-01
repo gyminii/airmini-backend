@@ -13,7 +13,7 @@ embeddings = OpenAIEmbeddings(
 )
 
 
-connection_string = settings["vectordb_url"]
+connection_string = settings["database_url"]
 
 vector_store = PGVector(
     embeddings=embeddings,

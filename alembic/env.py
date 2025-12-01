@@ -24,7 +24,7 @@ from app.database.models import *
 from app.config import get_settings
 
 settings = get_settings()
-config.set_main_option("sqlalchemy.url", settings["vectordb_url"])
+config.set_main_option("sqlalchemy.url", settings["database_url"])
 target_metadata = Base.metadata
 
 # other values from the config, defined by the needs of env.py,

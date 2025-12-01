@@ -10,7 +10,7 @@ from app.database.models import (
 )
 from app.schemas.chat import ChatRequest, ChatResponse, TripContext
 from app.auth.clerk import get_current_user
-from app.lib.graph import get_graph
+from app.lib.provider import get_graph
 from langchain_core.messages import HumanMessage, AIMessage
 from typing import Optional
 import uuid
@@ -116,12 +116,10 @@ async def create_chat_message(
     if trip_context_orm:
         trip_context_dict = {
             "ui_language": (
-                trip_context_orm.ui_language.value
-                if trip_context_orm.ui_language
-                else None
+                trip_context_orm.ui_language if trip_context_orm.ui_language else None
             ),
             "answer_language": (
-                trip_context_orm.answer_language.value
+                trip_context_orm.answer_language
                 if trip_context_orm.answer_language
                 else None
             ),

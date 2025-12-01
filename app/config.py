@@ -16,7 +16,6 @@ class Settings(TypedDict):
     clerk_publishablekey: str
     jwt_key: str
     database_url: SecretStr
-    vectordb_url: SecretStr
 
 
 def get_settings() -> Settings:
@@ -29,7 +28,6 @@ def get_settings() -> Settings:
     clerk_publishablekey = os.getenv("CLERK_PUBLISHABLE_KEY")
     jwt_key = os.getenv("JWT_KEY")
     database_url = os.getenv("DATABASE_URL")
-    vectordb_url = os.getenv("VECTOR_DATABASE_URL")
 
     if not openai_apikey:
         raise ValueError("No openai api key found in environment variables")
@@ -45,8 +43,6 @@ def get_settings() -> Settings:
         raise ValueError("No Clerk JWT key found in environment variables")
     if not database_url:
         raise ValueError("No Datbase URL found in environment variables")
-    if not vectordb_url:
-        raise ValueError("No Vector Database URL found in environment variables")
     return {
         "openai_apikey": openai_apikey,
         "openai_model": openai_model,
@@ -56,5 +52,4 @@ def get_settings() -> Settings:
         "clerk_publishablekey": clerk_publishablekey,
         "jwt_key": jwt_key,
         "database_url": database_url,
-        "vectordb_url": vectordb_url,
     }

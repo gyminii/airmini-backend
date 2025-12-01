@@ -5,6 +5,7 @@ from app.routers import api_router
 
 app = FastAPI(title="Airmini API", version="1.0.0")
 
+# uv run uvicorn app.main:app --reload
 # https://rudaks.tistory.com/entry/langgraph-%EA%B7%B8%EB%9E%98%ED%94%84%EB%A5%BC-%EB%B9%84%EB%8F%99%EA%B8%B0%EB%A1%9C-%EC%8B%A4%ED%96%89%ED%95%98%EB%8A%94-%EB%B0%A9%EB%B2%95
 # cors
 app.add_middleware(

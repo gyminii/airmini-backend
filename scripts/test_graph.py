@@ -1,6 +1,6 @@
 import asyncio
 from langchain_core.messages import HumanMessage
-from app.lib.graph import get_graph
+from app.lib.provider import get_graph
 
 
 async def test_graph_query(question: str):

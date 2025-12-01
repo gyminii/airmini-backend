@@ -5,8 +5,8 @@ from uuid import UUID, uuid4
 
 
 class TripContext(BaseModel):
-    ui_language: Literal["en", "ko"] = "en"
-    answer_language: Literal["en", "ko"] = "en"
+    ui_language: Literal["EN", "KO"] = "EN"
+    answer_language: Literal["EN", "KO"] = "EN"
 
     nationality_country_code: Optional[str] = None
 
