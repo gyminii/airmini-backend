@@ -362,29 +362,26 @@ workflow.add_conditional_edges(
     "relevance_check", should_retry_search, {"end": END, "retry": "classify"}
 )
 
-# @asynccontextmanager
-# async def get_graph():
-#     db_uri = settings["database_url"]
 
-#     async with AsyncConnectionPool(db_uri, kwargs=CONNECTION_KWARGS) as pool:
-#         checkpointer = AsyncPostgresSaver(pool)
-#         await checkpointer.setup()
-#         graph = workflow.compile(checkpointer=checkpointer)
+@asynccontextmanager
+async def get_graph():
+    db_uri = settings["vectordb_url"]
 
-#         yield graph
+    async with AsyncConnectionPool(db_uri, kwargs=CONNECTION_KWARGS) as pool:
+        checkpointer = AsyncPostgresSaver(pool)
+        await checkpointer.setup()
+        graph = workflow.compile(checkpointer=checkpointer)
 
-test_graph = workflow.compile()
+        yield graph
+
+
+# graph = workflow.compile()
 
 if __name__ == "__main__":
     import asyncio
 
     async def test():
         test_state = {
-            # "messages": [HumanMessage(content="Im an Iranian national that want to travel from USA to south korea as a student. what documents or visas do I need?")],
-            # "trip_context": TripContext(
-            #   nationality_country_code="IR",
-            #   destination_country_code="KR"
-            #  ),
             "messages": [HumanMessage(content="What are TSA Gun Rules?")],
             "trip_context": None,
             "query": None,
@@ -399,9 +396,11 @@ if __name__ == "__main__":
             "relevance_passed": False,
             "retry_count": 0,
         }
-        result = await test_graph.ainvoke(
-            test_state, config={"configurable": {"thread_id": "test-123"}}
-        )
+        async with get_graph() as graph:
+            result = await graph.ainvoke(
+                test_state,
+                config={"configurable": {"thread_id": "test-123"}},
+            )
 
         print(f"\n{'='*50}")
         print(f"Query type: {result.get('query_type')}")

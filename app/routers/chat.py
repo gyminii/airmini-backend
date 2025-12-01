@@ -10,7 +10,7 @@ from app.database.models import (
 )
 from app.schemas.chat import ChatRequest, ChatResponse, TripContext
 from app.auth.clerk import get_current_user
-from app.lib.graph import test_graph
+from app.lib.graph import get_graph
 from langchain_core.messages import HumanMessage, AIMessage
 from typing import Optional
 import uuid
@@ -29,17 +29,25 @@ async def create_chat_message(
         user_id = current_user["user_id"]
     else:
         user_id = f"anon_{uuid.uuid4()}"
+
     print(f"User: {user_id}")
 
     # Step 2: Get or create chat session
     if request.session_id:
-        result = await db.execute(
-            select(ChatORM).where(ChatORM.id == uuid.UUID(request.session_id))
-        )
+        try:
+            chat_uuid = uuid.UUID(request.session_id)
+        except ValueError:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid session_id",
+            )
+
+        result = await db.execute(select(ChatORM).where(ChatORM.id == chat_uuid))
         chat = result.scalar_one_or_none()
         if not chat:
             raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail="Chat not found"
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Chat not found",
             )
     else:
         chat = ChatORM(user_id=user_id)
@@ -176,9 +184,10 @@ async def create_chat_message(
         "retry_count": 0,
     }
 
-    result = await test_graph.ainvoke(
-        graph_state, config={"configurable": {"thread_id": str(chat.id)}}
-    )
+    async with get_graph() as graph:
+        result = await graph.ainvoke(
+            graph_state, config={"configurable": {"thread_id": str(chat.id)}}
+        )
 
     ai_response = result["messages"][-1].content
     print(f"Agent response: {ai_response[:100]}...")
