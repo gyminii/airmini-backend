@@ -15,6 +15,20 @@ import json
 settings = get_settings()
 
 
+def merge_sources(existing: list[str], new: list[str]) -> list[str]:
+    if new == []:
+        return []
+    # Combine and deduplicate while preserving order
+    combined = existing + new
+    seen = set()
+    result = []
+    for item in combined:
+        if item not in seen:
+            seen.add(item)
+            result.append(item)
+    return result
+
+
 class State(TypedDict):
     # without add_messages fallback, it will replace the entire messages instead of
     # getting appended to the old list.
@@ -29,7 +43,7 @@ class State(TypedDict):
     needs_web_search: bool
     needs_rag: bool
 
-    sources_used: list[str]
+    sources_used: Annotated[list[str], merge_sources]
 
     relevance_passed: bool
     retry_count: int
@@ -145,7 +159,7 @@ async def web_search(state: State):
         print(f"   Found {len(results.get('results', []))} web results")
 
     return {
-        "sources_used": state.get("sources_used", []) + ["web"],
+        "sources_used": ["web"],
         "web_results": results,
     }
 
@@ -166,7 +180,7 @@ async def rag_search(state: State):
         print()
 
     return {
-        "sources_used": state.get("sources_used", []) + ["rag"],
+        "sources_used": ["rag"],
         "rag_results": results,
     }
 
@@ -178,23 +192,23 @@ async def visa_search(state: State):
 
     if (
         trip_context
-        and trip_context.nationality_country_code
-        and trip_context.destination_country_code
+        and trip_context.get("nationality_country_code")
+        and trip_context.get("destination_country_code")
     ):
-        passport_country = trip_context.nationality_country_code
-        destination_country = trip_context.destination_country_code
+        passport_country = trip_context["nationality_country_code"]
+        destination_country = trip_context["destination_country_code"]
         result = await check_visa_requirements(passport_country, destination_country)
 
         print(f"   Checked visa: {passport_country} → {destination_country}")
 
         return {
-            "sources_used": state.get("sources_used", []) + ["visa"],
+            "sources_used": ["visa"],
             "visa_results": result,
         }
     else:
         print("   Missing nationality or destination country for visa check")
         return {
-            "sources_used": state.get("sources_used", []) + ["visa"],
+            "sources_used": ["visa"],
             "visa_results": None,
         }
 

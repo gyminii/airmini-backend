@@ -4,12 +4,13 @@ from sqlalchemy import select
 from app.database.db import get_db
 from app.database.models import (
     Chat as ChatORM,
+    Language,
     Message as MessageORM,
     TripContext as TripContextORM,
     MessageRole,
 )
 from app.schemas.chat import ChatRequest, ChatResponse, TripContext
-from app.auth.clerk import get_current_user
+from app.auth.clerk import get_optional_user
 from app.lib.provider import get_graph
 from langchain_core.messages import HumanMessage, AIMessage
 from typing import Optional
@@ -22,7 +23,7 @@ router = APIRouter()
 async def create_chat_message(
     request: ChatRequest,
     db: AsyncSession = Depends(get_db),
-    current_user: Optional[dict] = Depends(get_current_user),
+    current_user: Optional[dict] = Depends(get_optional_user),
 ):
     # Step 1: Determine user_id
     if current_user:
@@ -68,8 +69,10 @@ async def create_chat_message(
     if request.trip_context:
         if trip_context_orm:
             # Update existing
-            trip_context_orm.ui_language = request.trip_context.ui_language
-            trip_context_orm.answer_language = request.trip_context.answer_language
+            trip_context_orm.ui_language = Language[request.trip_context.ui_language]
+            trip_context_orm.answer_language = Language[
+                request.trip_context.answer_language
+            ]
             trip_context_orm.nationality_country_code = (
                 request.trip_context.nationality_country_code
             )
@@ -95,8 +98,8 @@ async def create_chat_message(
             # Create new
             trip_context_orm = TripContextORM(
                 chat_id=chat.id,
-                ui_language=request.trip_context.ui_language,
-                answer_language=request.trip_context.answer_language,
+                ui_language=Language[request.trip_context.ui_language],
+                answer_language=Language[request.trip_context.answer_language],
                 nationality_country_code=request.trip_context.nationality_country_code,
                 origin_country_code=request.trip_context.origin_country_code,
                 origin_city_or_airport=request.trip_context.origin_city_or_airport,
@@ -117,15 +120,15 @@ async def create_chat_message(
     # ORM -> Dict
     trip_context_dict = None
     if trip_context_orm:
+
+        def get_lang_value(lang_field):
+            if lang_field is None:
+                return "EN"
+            return lang_field.value if hasattr(lang_field, "value") else lang_field
+
         trip_context_dict = {
-            "ui_language": (
-                trip_context_orm.ui_language if trip_context_orm.ui_language else None
-            ),
-            "answer_language": (
-                trip_context_orm.answer_language
-                if trip_context_orm.answer_language
-                else None
-            ),
+            "ui_language": get_lang_value(trip_context_orm.ui_language),
+            "answer_language": get_lang_value(trip_context_orm.answer_language),
             "nationality_country_code": trip_context_orm.nationality_country_code,
             "origin_country_code": trip_context_orm.origin_country_code,
             "origin_city_or_airport": trip_context_orm.origin_city_or_airport,

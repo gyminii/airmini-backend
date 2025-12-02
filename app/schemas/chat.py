@@ -53,7 +53,7 @@ class ChatSummary(BaseModel):
     title: Optional[str] = None
     created: datetime
 
-    class config:
+    class Config:
         from_attributes: True
 
 

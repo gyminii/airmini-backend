@@ -11,7 +11,7 @@ from app.database.models import (
     Message as MessageORM,
     TripContext as TripContextORM,
 )
-from app.auth.clerk import get_current_user
+from app.auth.clerk import get_authenticated_user
 from app.routers.modules import is_chat_valid, is_user_authenticated
 from app.schemas.chat import ChatSummary, ChatUpdate
 
@@ -21,7 +21,7 @@ router = APIRouter()
 @router.get("", response_model=List[ChatSummary])
 async def list_chats(
     db: AsyncSession = Depends(get_db),
-    current_user: Optional[dict] = Depends(get_current_user),
+    current_user: Optional[dict] = Depends(get_authenticated_user),
 ):
     user_id = is_user_authenticated(current_user)
 
@@ -37,7 +37,7 @@ async def list_chats(
 async def get_chat(
     chat_id: str,
     db: AsyncSession = Depends(get_db),
-    current_user: Optional[dict] = Depends(get_current_user),
+    current_user: Optional[dict] = Depends(get_authenticated_user),
 ):
     user_id = is_user_authenticated(current_user)
     _, chat = await is_chat_valid(chat_id, user_id, db)
@@ -49,7 +49,7 @@ async def update_chat(
     chat_id: str,
     payload: ChatUpdate,
     db: AsyncSession = Depends(get_db),
-    current_user: Optional[dict] = Depends(get_current_user),
+    current_user: Optional[dict] = Depends(get_authenticated_user),
 ):
     user_id = is_user_authenticated(current_user)
 
@@ -67,7 +67,7 @@ async def update_chat(
 async def delete_chat(
     chat_id: str,
     db: AsyncSession = Depends(get_db),
-    current_user: Optional[dict] = Depends(get_current_user),
+    current_user: Optional[dict] = Depends(get_authenticated_user),
 ):
     user_id = is_user_authenticated(current_user)
     chat_uuid, _ = await is_chat_valid(chat_id, user_id, db)
@@ -84,7 +84,7 @@ async def delete_chat(
 async def claim_chat(
     chat_id: str,
     db: AsyncSession = Depends(get_db),
-    current_user: Optional[dict] = Depends(get_current_user),
+    current_user: Optional[dict] = Depends(get_authenticated_user),
 ):
     user_id = is_user_authenticated(current_user)
 

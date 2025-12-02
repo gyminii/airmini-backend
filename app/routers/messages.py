@@ -6,7 +6,7 @@ from sqlalchemy import select
 
 from app.database.db import get_db
 from app.database.models import Message as MessageORM
-from app.auth.clerk import get_current_user
+from app.auth.clerk import get_authenticated_user
 from app.schemas.chat import MessageRead
 from app.routers.modules import is_user_authenticated, is_chat_valid
 
@@ -19,7 +19,7 @@ async def list_messages(
     limit: int = 50,
     offset: int = 0,
     db: AsyncSession = Depends(get_db),
-    current_user: Optional[dict] = Depends(get_current_user),
+    current_user: Optional[dict] = Depends(get_authenticated_user),
 ):
     user_id = is_user_authenticated(current_user)
     chat_uuid, _ = await is_chat_valid(chat_id, user_id, db)
