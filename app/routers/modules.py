@@ -43,12 +43,17 @@ async def is_chat_valid(
     result = await db.execute(
         select(ChatORM).where(ChatORM.id == chat_uuid, ChatORM.user_id == user_id)
     )
-    chat = result.scalar_one_or_none()
 
+    chat = result.scalar_one_or_none()
+    if chat == None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Access denied",
+        )
     if not chat:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Chat not found or access denied",
+            detail="Chat not found",
         )
 
     return chat

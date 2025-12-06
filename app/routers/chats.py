@@ -1,23 +1,17 @@
 import logging
-from typing import List, Literal, Optional
-from uuid import UUID
+from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
+from langchain_core.messages import HumanMessage
 
 from app.database.db import get_db
-from app.database.models import Chat as ChatORM, Message as MessageORM, MessageRole
+from app.database.models import Chat as ChatORM
 from app.auth.clerk import get_authenticated_user
-from app.lib.graph import generate_chat_title
+from app.lib.provider import get_graph
 from app.routers.modules import is_chat_valid, is_user_authenticated
-from app.schemas.chat import (
-    ChatSummary,
-    ChatUpdate,
-    MessageRead,
-    ClaimConversationRequest,
-    ClaimMessageInput,
-)
+from app.schemas.chat import ChatSummary, ChatUpdate
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -39,24 +33,30 @@ async def list_chats(
     return result.scalars().all()
 
 
-@router.get("/{chat_id}/messages", response_model=List[MessageRead])
+@router.get("/{chat_id}/messages")
 async def get_chat_messages(
     chat_id: str,
     db: AsyncSession = Depends(get_db),
-    current_user: Optional[dict] = Depends(get_authenticated_user),
+    current_user: dict = Depends(get_authenticated_user),
 ):
-    """Get all messages for a specific chat"""
+    """Get messages from checkpointer"""
     user_id = is_user_authenticated(current_user)
+    await is_chat_valid(chat_id, user_id, db)
 
-    # Validate chat ownership
-    chat = await is_chat_valid(chat_id, user_id, db)
+    graph = get_graph()
+    config = {"configurable": {"thread_id": chat_id}}
+    state = await graph.aget_state(config)
 
-    result = await db.execute(
-        select(MessageORM)
-        .where(MessageORM.chat_id == chat.id)
-        .order_by(MessageORM.created_at.asc())
-    )
-    return result.scalars().all()
+    if not state or not state.values.get("messages"):
+        return []
+
+    return [
+        {
+            "role": "user" if isinstance(msg, HumanMessage) else "assistant",
+            "content": msg.content,
+        }
+        for msg in state.values["messages"]
+    ]
 
 
 @router.get("/{chat_id}", response_model=ChatSummary)
@@ -67,8 +67,6 @@ async def get_chat(
 ):
     """Get a specific chat by ID"""
     user_id = is_user_authenticated(current_user)
-    logger.debug(f"Fetching chat {chat_id} for user {user_id}")
-
     chat = await is_chat_valid(chat_id, user_id, db)
     return chat
 
@@ -102,45 +100,37 @@ async def delete_chat(
     user_id = is_user_authenticated(current_user)
     chat = await is_chat_valid(chat_id, user_id, db)
 
-    # Database CASCADE will automatically delete related messages and trip_context
     await db.delete(chat)
     await db.commit()
 
 
-#
-@router.post("/claim-conversation", response_model=ChatSummary)
-async def claim_conversation(
-    request: ClaimConversationRequest,
+@router.get("/{chat_id}/debug")
+async def debug_chat_state(
+    chat_id: str,
     db: AsyncSession = Depends(get_db),
-    current_user: Optional[dict] = Depends(get_authenticated_user),
+    current_user: dict = Depends(get_authenticated_user),
 ):
-    """Save an anonymous conversation to the authenticated user's account"""
+    """Debug endpoint to view checkpointer state"""
     user_id = is_user_authenticated(current_user)
+    await is_chat_valid(chat_id, user_id, db)
+    graph = get_graph()
+    config = {"configurable": {"thread_id": chat_id}}
+    state = await graph.aget_state(config)
 
-    # Generate title from first message if not provided
-    title = request.title
-    if not title and request.messages:
-        first_user_msg = next(
-            (m.content for m in request.messages if m.role == "user"), None
-        )
-        if first_user_msg:
-            title = await generate_chat_title(first_user_msg)
+    if not state or not state.values:
+        return {"error": "No state found", "thread_id": chat_id}
 
-    # Create chat
-    chat = ChatORM(user_id=user_id, title=title or "New Chat")
-    db.add(chat)
-    await db.flush()
-
-    # Add all messages
-    for msg in request.messages:
-        message = MessageORM(
-            chat_id=chat.id,
-            role=MessageRole[msg.role.upper()],
-            content=msg.content,
-        )
-        db.add(message)
-
-    await db.commit()
-    await db.refresh(chat)
-
-    return chat
+    return {
+        "thread_id": chat_id,
+        "message_count": len(state.values.get("messages", [])),
+        "messages": [
+            {
+                "type": msg.__class__.__name__,
+                "content": (
+                    msg.content[:200] + "..." if len(msg.content) > 200 else msg.content
+                ),
+            }
+            for msg in state.values.get("messages", [])
+        ],
+        "other_state": {k: v for k, v in state.values.items() if k != "messages"},
+    }

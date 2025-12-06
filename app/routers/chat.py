@@ -2,29 +2,23 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
-from app.database.db import get_db
-from app.database.models import (
-    Chat as ChatORM,
-    Language,
-    Message as MessageORM,
-    TripContext as TripContextORM,
-    MessageRole,
-)
-
-from app.lib.graph import generate_chat_title
-from app.schemas.chat import ChatRequest, ChatResponse, ChatSummary, TripContext
-from app.auth.clerk import get_authenticated_user, get_optional_user
-from app.lib.provider import get_graph
-from langchain_core.messages import HumanMessage, AIMessage
+from langchain_core.messages import HumanMessage
 from typing import AsyncGenerator, Optional
 import uuid
 import json
 
+from app.database.db import get_db
+from app.database.models import Chat as ChatORM, Language, TripContext as TripContextORM
+from app.lib.graph import generate_chat_title
+from app.schemas.chat import ChatRequest, TripContext
+from app.auth.clerk import get_optional_user
+from app.lib.provider import get_graph
+
 router = APIRouter()
 
 
-# user or anonymous user
 def resolve_user_id(current_user: Optional[dict]) -> str:
+    """Get user ID or generate anonymous ID"""
     if current_user:
         return current_user["user_id"]
     return f"anon_{uuid.uuid4()}"
@@ -36,6 +30,7 @@ async def get_or_create_chat(
     chat_id: Optional[str],
     first_message: Optional[str] = None,
 ) -> ChatORM:
+    """Get existing chat or create new one"""
     if chat_id:
         try:
             chat_uuid = uuid.UUID(chat_id)
@@ -54,10 +49,7 @@ async def get_or_create_chat(
             )
         return chat
 
-    title = None
-    if first_message:
-        title = await generate_chat_title(first_message)
-
+    title = await generate_chat_title(first_message) if first_message else None
     chat = ChatORM(user_id=user_id, title=title or "New Chat")
     db.add(chat)
     await db.flush()
@@ -67,19 +59,17 @@ async def get_or_create_chat(
 async def upsert_trip_context(
     db: AsyncSession,
     chat_id,
-    trip_context_request: Optional[TripContextORM],
+    trip_context_request: Optional[TripContext],
 ) -> Optional[dict]:
-    if not trip_context_request:
-        result = await db.execute(
-            select(TripContextORM).where(TripContextORM.chat_id == chat_id)
-        )
-        trip_context_orm = result.scalar_one_or_none()
-    else:
-        result = await db.execute(
-            select(TripContextORM).where(TripContextORM.chat_id == chat_id)
-        )
-        trip_context_orm = result.scalar_one_or_none()
+    """Create or update trip context for a chat"""
+    result = await db.execute(
+        select(TripContextORM).where(TripContextORM.chat_id == chat_id)
+    )
+    trip_context_orm = result.scalar_one_or_none()
+
+    if trip_context_request:
         if trip_context_orm:
+            # Update existing
             trip_context_orm.ui_language = Language[trip_context_request.ui_language]
             trip_context_orm.answer_language = Language[
                 trip_context_request.answer_language
@@ -106,6 +96,7 @@ async def upsert_trip_context(
             trip_context_orm.cabin = trip_context_request.cabin
             trip_context_orm.purpose = trip_context_request.purpose
         else:
+            # Create new
             trip_context_orm = TripContextORM(
                 chat_id=chat_id,
                 ui_language=Language[trip_context_request.ui_language],
@@ -151,56 +142,10 @@ async def upsert_trip_context(
     }
 
 
-async def save_user_message_and_get_history(
-    db: AsyncSession,
-    chat_id,
-    user_content: str,
-    limit: int = 20,
-):
-    user_message = MessageORM(
-        chat_id=chat_id,
-        role=MessageRole.USER,
-        content=user_content,
-    )
-    db.add(user_message)
-    await db.flush()
-
-    messages_result = await db.execute(
-        select(MessageORM)
-        .where(MessageORM.chat_id == chat_id)
-        .order_by(MessageORM.created_at.asc())
-        .limit(limit)
-    )
-    return messages_result.scalars().all()
-
-
-async def save_assistant_message(
-    db: AsyncSession,
-    chat_id,
-    content: str,
-):
-    ai_message = MessageORM(
-        chat_id=chat_id,
-        role=MessageRole.ASSISTANT,
-        content=content,
-    )
-    db.add(ai_message)
-    await db.commit()
-
-
-def build_langchain_messages(message_history, latest_user_message: str):
-    lc_messages = []
-    for msg in message_history[:-1]:
-        if msg.role == MessageRole.USER:
-            lc_messages.append(HumanMessage(content=msg.content))
-        elif msg.role == MessageRole.ASSISTANT:
-            lc_messages.append(AIMessage(content=msg.content))
-
-    lc_messages.append(HumanMessage(content=latest_user_message))
-    return lc_messages
-
-
-def build_initial_graph_state(lc_messages, trip_context_dict: Optional[dict]):
+def build_initial_graph_state(
+    lc_messages: list, trip_context_dict: Optional[dict]
+) -> dict:
+    """Build initial state for graph execution"""
     return {
         "messages": lc_messages,
         "trip_context": trip_context_dict,
@@ -223,21 +168,18 @@ def sse_event(data: dict) -> str:
     return f"data: {json.dumps(data)}\n\n"
 
 
-# Authenticated streaming
 async def graph_token_stream(
     graph,
     graph_state: dict,
     chat_id,
     chat_title: str,
-    db: AsyncSession,
 ) -> AsyncGenerator[str, None]:
-    """Stream in AI SDK Data Stream Protocol (SSE format)"""
-    full_text = ""
+    """Stream for authenticated users"""
     message_id = f"msg_{chat_id}"
     text_id = f"text_{chat_id}"
+    text_started = False
 
     yield sse_event({"type": "start", "messageId": message_id})
-
     yield sse_event(
         {
             "type": "data-metadata",
@@ -245,8 +187,6 @@ async def graph_token_stream(
             "transient": True,
         }
     )
-
-    yield sse_event({"type": "text-start", "id": text_id})
 
     async for chunk in graph.astream(
         graph_state,
@@ -257,23 +197,31 @@ async def graph_token_stream(
         if kind != "custom":
             continue
 
-        if isinstance(data, str):
-            full_text += data
+        # Handle thought events - use data-thought type
+        if isinstance(data, dict) and data.get("type") == "thought":
+            yield sse_event(
+                {
+                    "type": "data-thought",
+                    "data": {
+                        "content": data.get("content", ""),
+                        "status": "pending",
+                    },
+                }
+            )
+        # Handle text streaming
+        elif isinstance(data, str):
+            if not text_started:
+                yield sse_event({"type": "text-start", "id": text_id})
+                text_started = True
             yield sse_event({"type": "text-delta", "id": text_id, "delta": data})
 
-    # Send text block end
-    yield sse_event({"type": "text-end", "id": text_id})
+    if text_started:
+        yield sse_event({"type": "text-end", "id": text_id})
 
-    # Send message finish
     yield sse_event({"type": "finish"})
-
-    # Send done marker
     yield "data: [DONE]\n\n"
 
-    await save_assistant_message(db, chat_id, full_text)
 
-
-# Unauthenticated streaming
 async def graph_token_stream_anon(
     message: str,
     trip_context: Optional[dict] = None,
@@ -281,12 +229,11 @@ async def graph_token_stream_anon(
     """Stream for anonymous users - no DB persistence"""
     message_id = f"msg_{uuid.uuid4()}"
     text_id = f"text_{uuid.uuid4()}"
+    text_started = False
 
     yield sse_event({"type": "start", "messageId": message_id})
-    yield sse_event({"type": "text-start", "id": text_id})
 
     lc_messages = [HumanMessage(content=message)]
-
     graph_state = build_initial_graph_state(lc_messages, trip_context)
     graph = get_graph()
 
@@ -299,10 +246,25 @@ async def graph_token_stream_anon(
         if kind != "custom":
             continue
 
-        if isinstance(data, str):
+        if isinstance(data, dict) and data.get("type") == "thought":
+            yield sse_event(
+                {
+                    "type": "data-thought",
+                    "data": {
+                        "content": data.get("content", ""),
+                        "status": "pending",
+                    },
+                }
+            )
+        elif isinstance(data, str):
+            if not text_started:
+                yield sse_event({"type": "text-start", "id": text_id})
+                text_started = True
             yield sse_event({"type": "text-delta", "id": text_id, "delta": data})
 
-    yield sse_event({"type": "text-end", "id": text_id})
+    if text_started:
+        yield sse_event({"type": "text-end", "id": text_id})
+
     yield sse_event({"type": "finish"})
     yield "data: [DONE]\n\n"
 
@@ -315,6 +277,10 @@ async def create_chat_message_stream(
 ):
     user_id = resolve_user_id(current_user)
     is_anonymous = user_id.startswith("anon_")
+
+    print(f"=== Incoming request ===")
+    print(f"chat_id from request: {request.chat_id}")
+    print(f"message: {request.message[:50]}...")
 
     if is_anonymous:
         return StreamingResponse(
@@ -329,11 +295,12 @@ async def create_chat_message_stream(
                 "x-vercel-ai-ui-message-stream": "v1",
             },
         )
+
     chat = await get_or_create_chat(
         db,
         user_id=user_id,
         chat_id=request.chat_id,
-        first_message=(request.message if not request.chat_id else None),
+        first_message=request.message if not request.chat_id else None,
     )
 
     trip_context_dict = await upsert_trip_context(
@@ -342,19 +309,36 @@ async def create_chat_message_stream(
         trip_context_request=request.trip_context,
     )
 
-    message_history = await save_user_message_and_get_history(
-        db,
-        chat_id=chat.id,
-        user_content=request.message,
-        limit=20,
-    )
+    graph = get_graph()
 
-    lc_messages = build_langchain_messages(
-        message_history, latest_user_message=request.message
-    )
+    # Load existing messages from checkpointer
+    config = {"configurable": {"thread_id": str(chat.id)}}
+    state = await graph.aget_state(config)
+
+    # DEBUG: Log what we got from checkpointer
+    print(f"=== Loading chat {chat.id} ===")
+    print(f"State exists: {state is not None}")
+    if state:
+        print(f"State.values type: {type(state.values)}")
+        print(f"State.values keys: {state.values.keys() if state.values else 'None'}")
+        print(f"State.values: {state.values}")
+    if state and state.values:
+        existing_messages = state.values.get("messages", [])
+        print(f"Existing messages count: {len(existing_messages)}")
+        for i, msg in enumerate(existing_messages):
+            print(f"  [{i}] {msg.__class__.__name__}: {msg.content[:50]}...")
+    else:
+        print("No existing state/messages found")
+
+    if state and state.values.get("messages"):
+        lc_messages = list(state.values["messages"])
+        lc_messages.append(HumanMessage(content=request.message))
+    else:
+        lc_messages = [HumanMessage(content=request.message)]
+
+    print(f"Total messages being sent to graph: {len(lc_messages)}")
 
     graph_state = build_initial_graph_state(lc_messages, trip_context_dict)
-    graph = get_graph()
 
     return StreamingResponse(
         graph_token_stream(
@@ -362,7 +346,6 @@ async def create_chat_message_stream(
             graph_state=graph_state,
             chat_id=chat.id,
             chat_title=chat.title,
-            db=db,
         ),
         media_type="text/event-stream",
         headers={

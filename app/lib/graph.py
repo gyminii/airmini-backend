@@ -35,8 +35,6 @@ def merge_sources(existing: list[str], new: list[str]) -> list[str]:
 
 
 class State(TypedDict):
-    # without add_messages fallback, it will replace the entire messages instead of
-    # getting appended to the old list.
     messages: Annotated[list[BaseMessage], add_messages]
     trip_context: Optional[TripContext]
 
@@ -86,7 +84,7 @@ async def classify_query(state: State, writer: StreamWriter):
     retry_count = state.get("retry_count", 0)
     previous_sources = state.get("sources_used", [])
 
-    writer({"type": "thought", "content": "🤔 Analyzing your question..."})
+    writer({"type": "thought", "content": "Analyzing your question..."})
     retry_hint = ""
     if retry_count > 0:
         retry_hint = f"""
@@ -177,13 +175,13 @@ def dispatch_sources(state: State):
 
 
 async def web_search(state: State, writer: StreamWriter):
-    writer({"type": "thought", "content": "🌐 Searching the web..."})
+    writer({"type": "thought", "content": "Searching the web..."})
 
     query = state.get("query")
     results = await retrieve_web_results(query)
     if results:
         count = len(results.get("results", []))
-        writer({"type": "thought", "content": f"✓ Found {count} web results"})
+        writer({"type": "thought", "content": f"Found {count} web results"})
 
     return {
         "sources_used": ["web"],
@@ -192,10 +190,10 @@ async def web_search(state: State, writer: StreamWriter):
 
 
 async def rag_search(state: State, writer: StreamWriter):
-    writer({"type": "thought", "content": "📖 Searching knowledge base..."})
+    writer({"type": "thought", "content": "Searching knowledge base..."})
     query = state["query"]
     results = await retrieve_rag_results(query)
-    writer({"type": "thought", "content": f"✓ Found {len(results)} relevant documents"})
+    writer({"type": "thought", "content": f"Found {len(results)} relevant documents"})
 
     return {
         "sources_used": ["rag"],
@@ -204,17 +202,17 @@ async def rag_search(state: State, writer: StreamWriter):
 
 
 async def visa_search(state: State, writer: StreamWriter):
-    writer({"type": "thought", "content": "🛂 Checking visa requirements..."})
+    writer({"type": "thought", "content": "Checking visa requirements..."})
     trip_context = state.get("trip_context")
     result = await retrieve_visa_requirements(trip_context)
 
     if result:
-        writer({"type": "thought", "content": "✓ Visa information retrieved"})
+        writer({"type": "thought", "content": "Visa information retrieved"})
     else:
         writer(
             {
                 "type": "thought",
-                "content": "⚠ Visa check unavailable (missing trip details)",
+                "content": "Visa check unavailable (missing trip details)",
             }
         )
     return {
@@ -239,27 +237,50 @@ async def generate_response(state: State, writer: StreamWriter):
         visa_results = state.get("visa_results")
         sources_data.extend(format_visa_sources(visa_results))
 
-    prompt = f"""
-    User question: {state.get('query')}
-    
-    Available information from {', '.join(state['sources_used'])} sources:
-    {chr(10).join(sources_data)}
-    
-    Based on the above sources, provide a helpful and accurate answer.
-    Be direct, cite sources, and provide actionable information.
-    """
+    # Build the messages list with conversation history
+    messages = []
+
+    # System message
+    system_content = """You are Airmini, a helpful travel assistant specializing in:
+        - Visa and immigration requirements
+        - Flight information and airline policies
+        - TSA/security regulations and baggage rules
+        - Travel tips and destination information
+        - Customs and entry requirements
+
+        IMPORTANT RULES:
+        1. Remember details the user has shared (like their name, travel plans, etc.)
+        2. For off-topic questions unrelated to travel/aviation (like coding, math, recipes, etc.), politely redirect:
+        "I'm Airmini, your travel assistant! I can help with visa requirements, flight info, baggage rules, and travel tips. What travel questions can I help you with?"
+        3. For casual greetings or personal info (like "my name is X"), respond naturally and remember it.
+        4. Be direct, helpful, and conversational."""
+
+    if sources_data:
+        system_content += f"""
+
+Available information from {', '.join(state['sources_used'])} sources:
+{chr(10).join(sources_data)}
+
+Use these sources to provide accurate information when relevant."""
+
+    messages.append({"role": "system", "content": system_content})
+
+    # Add conversation history
+    for msg in state["messages"]:
+        if isinstance(msg, HumanMessage):
+            messages.append({"role": "user", "content": msg.content})
+        elif isinstance(msg, AIMessage):
+            messages.append({"role": "assistant", "content": msg.content})
 
     chunks: list[str] = []
 
-    async for chunk in chat_model.astream([HumanMessage(content=prompt)]):
+    async for chunk in chat_model.astream(messages):
         text = ""
 
-        # Most langchain-openai versions: chunk.content is str or list
         if hasattr(chunk, "content"):
             if isinstance(chunk.content, str):
                 text = chunk.content
             elif isinstance(chunk.content, list):
-                # Join text parts if using content blocks
                 text = "".join(
                     part.get("text", "")
                     for part in chunk.content
@@ -269,10 +290,7 @@ async def generate_response(state: State, writer: StreamWriter):
         if not text:
             continue
 
-        # 1) send to LangGraph stream (picked up in stream_mode=["custom"])
         writer(text)
-
-        # 2) accumulate for final message/state
         chunks.append(text)
 
     full_text = "".join(chunks)
@@ -281,9 +299,20 @@ async def generate_response(state: State, writer: StreamWriter):
     return {"messages": [ai_msg]}
 
 
+async def receive_message(state: State, writer: StreamWriter):
+    """Passthrough node that ensures input messages are checkpointed"""
+    print(f"=== receive_message node ===")
+    print(f"Messages count: {len(state['messages'])}")
+    for i, msg in enumerate(state["messages"]):
+        print(f"  [{i}] {msg.__class__.__name__}: {msg.content[:50]}...")
+
+    # Return the messages so they get saved by checkpointer
+    return {"messages": state["messages"]}
+
+
 async def relevance_check(state: State, writer: StreamWriter):
     """Check if the gathered information is relevant and sufficient"""
-    writer({"type": "thought", "content": "🔍 Checking answer quality..."})
+    writer({"type": "thought", "content": "Checking answer quality..."})
     retry_count = state.get("retry_count", 0)
     print(f"Checking relevance (attempt {retry_count + 1}/5)")
 
@@ -291,24 +320,25 @@ async def relevance_check(state: State, writer: StreamWriter):
     query = state.get("query")
 
     prompt = f"""
-    Evaluate if this response answers the user's question.
-    
-    User's question: {query}
-    Assistant's response: {last_ai_message}
-    
-    Criteria:
-    1. Does the response directly address what the user asked?
-    2. Is the response specific enough to be helpful?
-    3. Does it provide actionable information or clear next steps?
-    
-    Ignore whether sources are mentioned or if data is placeholder - focus ONLY on whether 
-    the response structure and content type match what was asked.
-    
-    Respond with ONLY valid JSON (no markdown, no code blocks):
-    {{"relevance_passed": true, "reason": "brief explanation"}}
-    OR
-    {{"relevance_passed": false, "reason": "what's missing"}}
-    """
+        Evaluate if this response appropriately addresses the user's message.
+        
+        User's message: {query}
+        Assistant's response: {last_ai_message}
+        
+        Criteria:
+        1. If the user asked a travel-related question: Does the response answer it?
+        2. If the user shared personal info (like their name): Does the response acknowledge it?
+        3. If the user asked something off-topic: Does the response politely redirect to travel topics?
+        4. For greetings/casual chat: Is the response friendly and appropriate?
+        
+        A response that politely redirects off-topic questions IS a valid response.
+        
+        Respond with ONLY valid JSON (no markdown, no code blocks):
+        {{"relevance_passed": true, "reason": "brief explanation"}}
+        OR
+        {{"relevance_passed": false, "reason": "what's missing"}}
+        """
+
     response = chat_model.invoke([HumanMessage(content=prompt)])
 
     content = response.content.strip()
@@ -324,16 +354,15 @@ async def relevance_check(state: State, writer: StreamWriter):
         reason = result.get("reason", "")
         print(f"   Relevance: {'PASSED' if passed else 'FAILED'} - {reason}")
 
-        # Stream the result BEFORE returning
         if not passed:
             writer(
                 {
                     "type": "thought",
-                    "content": f"⚠ Answer insufficient: {reason}. Searching again...",
+                    "content": f"Answer insufficient: {reason}. Searching again...",
                 }
             )
         else:
-            writer({"type": "thought", "content": "✅ Answer quality verified"})
+            writer({"type": "thought", "content": "Answer quality verified"})
 
         return {"relevance_passed": passed, "retry_count": retry_count + 1}
 
@@ -342,7 +371,7 @@ async def relevance_check(state: State, writer: StreamWriter):
         writer(
             {
                 "type": "thought",
-                "content": "⚠ Could not verify quality, proceeding anyway",
+                "content": "Could not verify quality, proceeding anyway",
             }
         )
         return {"relevance_passed": True, "retry_count": retry_count + 1}
@@ -361,6 +390,7 @@ def should_retry_search(state: State):
 
 
 workflow = StateGraph(State)
+workflow.add_node("receive_message", receive_message)
 workflow.add_node("classify", classify_query)
 workflow.add_node("visa_search", visa_search)
 workflow.add_node("web_search", web_search)
@@ -368,7 +398,8 @@ workflow.add_node("rag_search", rag_search)
 workflow.add_node("generate_response", generate_response)
 workflow.add_node("relevance_check", relevance_check)
 
-workflow.add_edge(START, "classify")
+workflow.add_edge(START, "receive_message")  # Start here
+workflow.add_edge("receive_message", "classify")
 workflow.add_conditional_edges("classify", dispatch_sources)
 
 workflow.add_edge("visa_search", "generate_response")

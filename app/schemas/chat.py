@@ -1,7 +1,7 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 from typing import Literal, Optional, List, Dict
 from datetime import datetime
-from uuid import UUID, uuid4
+from uuid import UUID
 
 
 # fast api dicts
@@ -63,12 +63,3 @@ class MessageRead(BaseModel):
 
 class ChatUpdate(BaseModel):
     title: Optional[str] = None
-
-
-class ClaimMessageInput(BaseModel):
-    role: Literal["user", "assistant"]
-    content: str
-
-
-class ClaimConversationRequest(BaseModel):
-    messages: List[ClaimMessageInput]
