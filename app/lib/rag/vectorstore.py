@@ -68,6 +68,7 @@ def sanitize_text(text: str) -> str:
 # Adding documents to vector stores after embeddings
 async def add_documents(texts: list[str], metadatas: list[dict] = None):
     # Where embedding actually happens.
+    # removing unncessary characters before adding documents
     cleaned_texts = [sanitize_text(text) for text in texts]
 
     # Filter out empty texts after cleaning

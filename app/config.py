@@ -1,4 +1,5 @@
 from typing import TypedDict
+from httpx import stream
 from pydantic import SecretStr
 from dotenv import load_dotenv
 import os
@@ -11,6 +12,8 @@ class Settings(TypedDict):
     openai_apikey: SecretStr
     openai_model: str
     rapid_apikey: str
+    rapid_apihost: str
+
     tavily_apikey: str
     clerk_secretKey: str
     clerk_publishablekey: str
@@ -26,6 +29,7 @@ def get_settings() -> Settings:
     clerk_secretKey = os.getenv("CLERK_SECRET_KEY")
     clerk_publishablekey = os.getenv("CLERK_PUBLISHABLE_KEY")
     database_url = os.getenv("DATABASE_URL")
+    rapid_apihost = os.getenv("RAPIDAPI_HOST")
 
     if not openai_apikey:
         raise ValueError("No openai api key found in environment variables")
@@ -47,4 +51,5 @@ def get_settings() -> Settings:
         "clerk_secretKey": clerk_secretKey,
         "clerk_publishablekey": clerk_publishablekey,
         "database_url": database_url,
+        "rapid_apihost": rapid_apihost,
     }

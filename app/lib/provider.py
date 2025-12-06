@@ -39,6 +39,11 @@ async def initialize_graph():
     print("Checkpointer ready")
 
     _graph_instance = workflow.compile(checkpointer=checkpointer)
+    mermaid_code = _graph_instance.get_graph().draw_mermaid()
+    #  mermaid_code = _graph_instance.get_graph().draw_mermaid_png(
+    #     output_file_path="graph.png"
+    # )
+    print(mermaid_code)
     print("Graph compiled successfully!")
 
 

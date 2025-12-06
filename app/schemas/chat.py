@@ -4,6 +4,7 @@ from datetime import datetime
 from uuid import UUID, uuid4
 
 
+# fast api dicts
 class TripContext(BaseModel):
     ui_language: Literal["EN", "KO"] = "EN"
     answer_language: Literal["EN", "KO"] = "EN"
@@ -25,24 +26,16 @@ class TripContext(BaseModel):
     purpose: Optional[Literal["tourism", "business", "family", "study", "other"]] = None
 
 
-class ChatSession(BaseModel):
-    session_id: str = Field(default_factory=lambda: str(uuid4()))
-    user_id: str
-    created_at: datetime = Field(default_factory=datetime.now)
-    trip_context: Optional[TripContext] = None
-    message_history: List[Dict] = Field(default_factory=list)
-
-
 class ChatRequest(BaseModel):
     message: str
-    # user_id: str
-    session_id: Optional[str] = None
+    chat_id: Optional[str] = None
     trip_context: Optional[TripContext] = None
+    stream: bool = False
 
 
 class ChatResponse(BaseModel):
     message: str
-    session_id: str
+    chat_id: Optional[str] = None
     trip_context: TripContext
     needs_onboarding: bool
     source_info: Optional[Dict] = None
@@ -51,7 +44,7 @@ class ChatResponse(BaseModel):
 class ChatSummary(BaseModel):
     id: UUID
     title: Optional[str] = None
-    created: datetime
+    created_at: datetime
 
     class Config:
         from_attributes: True
@@ -60,7 +53,7 @@ class ChatSummary(BaseModel):
 class MessageRead(BaseModel):
     id: UUID
     chat_id: UUID
-    role: Literal["user", "assistant", "system"]
+    role: str
     content: str
     created_at: datetime
 
@@ -70,3 +63,12 @@ class MessageRead(BaseModel):
 
 class ChatUpdate(BaseModel):
     title: Optional[str] = None
+
+
+class ClaimMessageInput(BaseModel):
+    role: Literal["user", "assistant"]
+    content: str
+
+
+class ClaimConversationRequest(BaseModel):
+    messages: List[ClaimMessageInput]

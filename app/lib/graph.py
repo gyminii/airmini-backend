@@ -4,13 +4,19 @@ from langchain_core.messages import BaseMessage, HumanMessage, AIMessage
 from langgraph.graph.message import add_messages
 
 from app.config import get_settings
-from app.lib.api.visa import check_visa_requirements
-from app.lib.api.web_search import search_web
-from app.lib.rag.vectorstore import similarity_search
 from app.database.models import TripContext
 from app.lib.llm import chat_model
-from langgraph.types import Send
+from app.lib.rag.retriever import (
+    retrieve_web_results,
+    retrieve_rag_results,
+    retrieve_visa_requirements,
+    format_rag_sources,
+    format_web_sources,
+    format_visa_sources,
+)
 import json
+from langgraph.types import Send, StreamWriter
+
 
 settings = get_settings()
 
@@ -18,7 +24,6 @@ settings = get_settings()
 def merge_sources(existing: list[str], new: list[str]) -> list[str]:
     if new == []:
         return []
-    # Combine and deduplicate while preserving order
     combined = existing + new
     seen = set()
     result = []
@@ -54,14 +59,34 @@ class State(TypedDict):
     visa_results: Optional[Dict]
 
 
+# setting the title before moving further.
+async def generate_chat_title(message: str) -> str:
+    """Generate a concise title from the first user message"""
+    prompt = f"""
+    Generate a short, descriptive title (max 6 words) for a chat that starts with this message:
+    "{message}"
+    
+    Return ONLY the title, no quotes, no explanation.
+    Examples:
+    - "What are TSA liquid rules?" → "TSA Liquid Rules"
+    - "Do I need a visa to Japan?" → "Japan Visa Requirements"
+    - "Help me pack for Paris" → "Paris Packing Guide"
+    """
+
+    response = chat_model.invoke([HumanMessage(content=prompt)])
+    title = response.content.strip().strip('"').strip("'")
+    return title[:60]
+
+
 """Figure out what kind of question this is"""
 
 
-async def classify_query(state: State):
+async def classify_query(state: State, writer: StreamWriter):
     last_message = state["messages"][-1].content
     retry_count = state.get("retry_count", 0)
     previous_sources = state.get("sources_used", [])
 
+    writer({"type": "thought", "content": "🤔 Analyzing your question..."})
     retry_hint = ""
     if retry_count > 0:
         retry_hint = f"""
@@ -151,12 +176,14 @@ def dispatch_sources(state: State):
     return tasks
 
 
-async def web_search(state: State):
-    print("Search web node called")
+async def web_search(state: State, writer: StreamWriter):
+    writer({"type": "thought", "content": "🌐 Searching the web..."})
+
     query = state.get("query")
-    results = await search_web(query, 5)
+    results = await retrieve_web_results(query)
     if results:
-        print(f"   Found {len(results.get('results', []))} web results")
+        count = len(results.get("results", []))
+        writer({"type": "thought", "content": f"✓ Found {count} web results"})
 
     return {
         "sources_used": ["web"],
@@ -164,20 +191,11 @@ async def web_search(state: State):
     }
 
 
-async def rag_search(state: State):
-    print("Rag search node called")
-
+async def rag_search(state: State, writer: StreamWriter):
+    writer({"type": "thought", "content": "📖 Searching knowledge base..."})
     query = state["query"]
-    print(f" RAG search for: {query}")
-    #  Searching through the vectordb
-    results = await similarity_search(query, k=5, score_threshold=0.5)
-
-    print(f" Found {len(results)} relevant documents")
-    for i, result in enumerate(results, 1):
-        print(f"   {i}. Score: {result['score']:.2f}")
-        print(f"      Source: {result['source']}")
-        print(f"      Content preview: {result['content'][:100]}...")
-        print()
+    results = await retrieve_rag_results(query)
+    writer({"type": "thought", "content": f"✓ Found {len(results)} relevant documents"})
 
     return {
         "sources_used": ["rag"],
@@ -185,95 +203,41 @@ async def rag_search(state: State):
     }
 
 
-async def visa_search(state: State):
-    print("Visa Search node called")
-
+async def visa_search(state: State, writer: StreamWriter):
+    writer({"type": "thought", "content": "🛂 Checking visa requirements..."})
     trip_context = state.get("trip_context")
+    result = await retrieve_visa_requirements(trip_context)
 
-    if (
-        trip_context
-        and trip_context.get("nationality_country_code")
-        and trip_context.get("destination_country_code")
-    ):
-        passport_country = trip_context["nationality_country_code"]
-        destination_country = trip_context["destination_country_code"]
-        result = await check_visa_requirements(passport_country, destination_country)
-
-        print(f"   Checked visa: {passport_country} → {destination_country}")
-
-        return {
-            "sources_used": ["visa"],
-            "visa_results": result,
-        }
+    if result:
+        writer({"type": "thought", "content": "✓ Visa information retrieved"})
     else:
-        print("   Missing nationality or destination country for visa check")
-        return {
-            "sources_used": ["visa"],
-            "visa_results": None,
-        }
-
-
-# Helper functions for formatting..
-def format_rag_sources(rag_results: Optional[list[dict]]) -> list[str]:
-    """Format RAG results for GPT context"""
-    if not rag_results:
-        return ["No relevant information in knowledge base."]
-
-    formatted = ["=== Knowledge Base ==="]
-    for i, result in enumerate(rag_results, 1):
-        source = (
-            result["source"].rsplit("/", 1)[-1]
-            if "/" in result["source"]
-            else result["source"]
+        writer(
+            {
+                "type": "thought",
+                "content": "⚠ Visa check unavailable (missing trip details)",
+            }
         )
-        formatted.append(f"\n[Source {i} - {source}]")
-        formatted.append(result["content"])
-
-    return formatted
-
-
-def format_web_sources(web_results: Optional[Dict]) -> list[str]:
-    """Format web search results for GPT context"""
-    if not web_results:
-        return ["Web search returned no results."]
-
-    formatted = ["\n=== Web Search ==="]
-
-    # Add Tavily's AI summary if available
-    if web_results.get("answer"):
-        formatted.append(f"Summary: {web_results['answer']}\n")
-
-    # Add top 3 web results
-    for i, result in enumerate(web_results.get("results", [])[:3], 1):
-        formatted.append(f"[Result {i}] {result.get('title', 'Untitled')}")
-        formatted.append(f"{result.get('content', '')[:300]}...\n")
-
-    return formatted
+    return {
+        "sources_used": ["visa"],
+        "visa_results": result,
+    }
 
 
-def format_visa_sources(visa_results: Optional[Dict]) -> list[str]:
-    """Format visa API results for GPT context"""
-    if not visa_results:
-        return ["Visa information not available."]
-
-    formatted = ["\n=== Visa Requirements ==="]
-    formatted.append(json.dumps(visa_results, indent=2))
-
-    return formatted
-
-
-async def generate_response(state: State):
+async def generate_response(state: State, writer: StreamWriter):
     print(f"Generating response using sources: {state['sources_used']}")
 
     sources_data = []
     if "rag" in state["sources_used"]:
-        sources_data.extend(format_rag_sources(state.get("rag_results")))
+        rag_result = state.get("rag_results")
+        sources_data.extend(format_rag_sources(rag_result))
 
     if "web" in state["sources_used"]:
-        sources_data.extend(format_web_sources(state.get("web_results")))
+        web_result = state.get("web_results")
+        sources_data.extend(format_web_sources(web_result))
 
     if "visa" in state["sources_used"]:
-        sources_data.extend(format_visa_sources(state.get("visa_results")))
+        visa_results = state.get("visa_results")
+        sources_data.extend(format_visa_sources(visa_results))
 
     prompt = f"""
     User question: {state.get('query')}
@@ -283,14 +247,43 @@ async def generate_response(state: State):
     
     Based on the above sources, provide a helpful and accurate answer.
     Be direct, cite sources, and provide actionable information.
-  """
-    response = chat_model.invoke([HumanMessage(content=prompt)])
-    return {"messages": [response]}
+    """
+
+    chunks: list[str] = []
+
+    async for chunk in chat_model.astream([HumanMessage(content=prompt)]):
+        text = ""
+
+        # Most langchain-openai versions: chunk.content is str or list
+        if hasattr(chunk, "content"):
+            if isinstance(chunk.content, str):
+                text = chunk.content
+            elif isinstance(chunk.content, list):
+                # Join text parts if using content blocks
+                text = "".join(
+                    part.get("text", "")
+                    for part in chunk.content
+                    if isinstance(part, dict) and part.get("type") == "text"
+                )
+
+        if not text:
+            continue
+
+        # 1) send to LangGraph stream (picked up in stream_mode=["custom"])
+        writer(text)
+
+        # 2) accumulate for final message/state
+        chunks.append(text)
+
+    full_text = "".join(chunks)
+
+    ai_msg = AIMessage(content=full_text)
+    return {"messages": [ai_msg]}
 
 
-async def relevance_check(state: State):
+async def relevance_check(state: State, writer: StreamWriter):
     """Check if the gathered information is relevant and sufficient"""
-
+    writer({"type": "thought", "content": "🔍 Checking answer quality..."})
     retry_count = state.get("retry_count", 0)
     print(f"Checking relevance (attempt {retry_count + 1}/5)")
 
@@ -315,7 +308,7 @@ async def relevance_check(state: State):
     {{"relevance_passed": true, "reason": "brief explanation"}}
     OR
     {{"relevance_passed": false, "reason": "what's missing"}}
-  """
+    """
     response = chat_model.invoke([HumanMessage(content=prompt)])
 
     content = response.content.strip()
@@ -330,9 +323,28 @@ async def relevance_check(state: State):
         passed = result.get("relevance_passed", False)
         reason = result.get("reason", "")
         print(f"   Relevance: {'PASSED' if passed else 'FAILED'} - {reason}")
+
+        # Stream the result BEFORE returning
+        if not passed:
+            writer(
+                {
+                    "type": "thought",
+                    "content": f"⚠ Answer insufficient: {reason}. Searching again...",
+                }
+            )
+        else:
+            writer({"type": "thought", "content": "✅ Answer quality verified"})
+
         return {"relevance_passed": passed, "retry_count": retry_count + 1}
+
     except json.JSONDecodeError:
         print(f"   Failed to parse relevance response: {content[:100]}")
+        writer(
+            {
+                "type": "thought",
+                "content": "⚠ Could not verify quality, proceeding anyway",
+            }
+        )
         return {"relevance_passed": True, "retry_count": retry_count + 1}
 
 

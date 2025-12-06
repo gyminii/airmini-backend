@@ -1,4 +1,3 @@
-# app/database/models.py
 import enum
 import uuid
 from sqlalchemy import Column, String, DateTime, Text, Enum, ForeignKey
