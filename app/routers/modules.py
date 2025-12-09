@@ -38,13 +38,16 @@ async def is_chat_valid(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Invalid chat_id",
         )
-
+    print(f"[DEBUG] Checking chat ownership:")
+    print(f"  input chat_id: {chat_id}")
+    print(f"  request user_id: {user_id}")
     # Check existence and ownership
     result = await db.execute(
         select(ChatORM).where(ChatORM.id == chat_uuid, ChatORM.user_id == user_id)
     )
 
     chat = result.scalar_one_or_none()
+    print(f"  db chat.user_id: {chat.user_id if chat else None}")
     if chat == None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

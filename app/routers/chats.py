@@ -102,35 +102,3 @@ async def delete_chat(
 
     await db.delete(chat)
     await db.commit()
-
-
-@router.get("/{chat_id}/debug")
-async def debug_chat_state(
-    chat_id: str,
-    db: AsyncSession = Depends(get_db),
-    current_user: dict = Depends(get_authenticated_user),
-):
-    """Debug endpoint to view checkpointer state"""
-    user_id = is_user_authenticated(current_user)
-    await is_chat_valid(chat_id, user_id, db)
-    graph = get_graph()
-    config = {"configurable": {"thread_id": chat_id}}
-    state = await graph.aget_state(config)
-
-    if not state or not state.values:
-        return {"error": "No state found", "thread_id": chat_id}
-
-    return {
-        "thread_id": chat_id,
-        "message_count": len(state.values.get("messages", [])),
-        "messages": [
-            {
-                "type": msg.__class__.__name__,
-                "content": (
-                    msg.content[:200] + "..." if len(msg.content) > 200 else msg.content
-                ),
-            }
-            for msg in state.values.get("messages", [])
-        ],
-        "other_state": {k: v for k, v in state.values.items() if k != "messages"},
-    }

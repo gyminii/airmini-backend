@@ -24,14 +24,25 @@ def resolve_user_id(current_user: Optional[dict]) -> str:
     return f"anon_{uuid.uuid4()}"
 
 
+import uuid
+from fastapi import HTTPException, status
+from sqlalchemy import select
+from app.database.models import Chat as ChatORM
+
+
 async def get_or_create_chat(
     db: AsyncSession,
     user_id: str,
     chat_id: Optional[str],
     first_message: Optional[str] = None,
 ) -> ChatORM:
-    """Get existing chat or create new one"""
+    print("=== get_or_create_chat ===")
+    print(f"user_id = {user_id}")
+    print(f"chat_id from request = {chat_id}")
+
     if chat_id:
+        print("→ Checking if chat exists...")
+
         try:
             chat_uuid = uuid.UUID(chat_id)
         except ValueError:
@@ -40,19 +51,44 @@ async def get_or_create_chat(
                 detail="Invalid chat_id",
             )
 
-        result = await db.execute(select(ChatORM).where(ChatORM.id == chat_uuid))
-        chat = result.scalar_one_or_none()
-        if not chat:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Chat not found",
+        result = await db.execute(
+            select(ChatORM).where(
+                ChatORM.id == chat_uuid,
+                ChatORM.user_id == user_id,
             )
+        )
+        chat = result.scalar_one_or_none()
+
+        if chat:
+            return chat
+
+        title = (
+            await generate_chat_title(first_message) if first_message else "New Chat"
+        )
+        # creating chat with the given chat_id and user
+        chat = ChatORM(
+            id=chat_uuid,
+            user_id=user_id,
+            title=title,
+        )
+        db.add(chat)
+        await db.flush()
+        await db.refresh(chat)
+        print(f"✔ Created new chat {chat.id} for user {user_id}")
         return chat
 
-    title = await generate_chat_title(first_message) if first_message else None
-    chat = ChatORM(user_id=user_id, title=title or "New Chat")
+    print("→ Creating NEW chat (no chat_id provided)")
+
+    title = await generate_chat_title(first_message) if first_message else "New Chat"
+    chat = ChatORM(
+        user_id=user_id,
+        title=title,
+    )
     db.add(chat)
     await db.flush()
+    await db.refresh(chat)
+
+    print(f"✔ Created NEW chat with id={chat.id}")
     return chat
 
 
@@ -197,18 +233,17 @@ async def graph_token_stream(
         if kind != "custom":
             continue
 
-        # Handle thought events - use data-thought type
         if isinstance(data, dict) and data.get("type") == "thought":
             yield sse_event(
                 {
                     "type": "data-thought",
                     "data": {
                         "content": data.get("content", ""),
+                        "phase": data.get("phase", "other"),  # Add phase
                         "status": "pending",
                     },
                 }
             )
-        # Handle text streaming
         elif isinstance(data, str):
             if not text_started:
                 yield sse_event({"type": "text-start", "id": text_id})
@@ -252,6 +287,7 @@ async def graph_token_stream_anon(
                     "type": "data-thought",
                     "data": {
                         "content": data.get("content", ""),
+                        "phase": data.get("phase", "other"),  # Add phase
                         "status": "pending",
                     },
                 }
@@ -275,13 +311,16 @@ async def create_chat_message_stream(
     db: AsyncSession = Depends(get_db),
     current_user: Optional[dict] = Depends(get_optional_user),
 ):
+    print("=== Incoming request ===")
+    print(f"chat_id from frontend = {request.chat_id}")
+    print(f"message = {request.message[:50]}...")
+
     user_id = resolve_user_id(current_user)
     is_anonymous = user_id.startswith("anon_")
-
-    print(f"=== Incoming request ===")
-    print(f"chat_id from request: {request.chat_id}")
-    print(f"message: {request.message[:50]}...")
-
+    print(f"trip context: {request.trip_context}")
+    # ------------------------------------------
+    # Anonymous users → no DB reads/writes
+    # ------------------------------------------
     if is_anonymous:
         return StreamingResponse(
             graph_token_stream_anon(
@@ -296,39 +335,34 @@ async def create_chat_message_stream(
             },
         )
 
+    # ------------------------------------------
+    # Authenticated user → create or retrieve chat
+    # ------------------------------------------
     chat = await get_or_create_chat(
-        db,
+        db=db,
         user_id=user_id,
         chat_id=request.chat_id,
-        first_message=request.message if not request.chat_id else None,
+        first_message=request.message,
     )
 
+    await db.commit()
+    print(f"✔ chat committed: {chat.id}")
+
+    # ------------------------------------------
+    # Save trip context
+    # ------------------------------------------
     trip_context_dict = await upsert_trip_context(
         db,
         chat_id=chat.id,
         trip_context_request=request.trip_context,
     )
 
+    # ------------------------------------------
+    # Load existing thread state from checkpointer
+    # ------------------------------------------
     graph = get_graph()
-
-    # Load existing messages from checkpointer
     config = {"configurable": {"thread_id": str(chat.id)}}
     state = await graph.aget_state(config)
-
-    # DEBUG: Log what we got from checkpointer
-    print(f"=== Loading chat {chat.id} ===")
-    print(f"State exists: {state is not None}")
-    if state:
-        print(f"State.values type: {type(state.values)}")
-        print(f"State.values keys: {state.values.keys() if state.values else 'None'}")
-        print(f"State.values: {state.values}")
-    if state and state.values:
-        existing_messages = state.values.get("messages", [])
-        print(f"Existing messages count: {len(existing_messages)}")
-        for i, msg in enumerate(existing_messages):
-            print(f"  [{i}] {msg.__class__.__name__}: {msg.content[:50]}...")
-    else:
-        print("No existing state/messages found")
 
     if state and state.values.get("messages"):
         lc_messages = list(state.values["messages"])
@@ -336,10 +370,11 @@ async def create_chat_message_stream(
     else:
         lc_messages = [HumanMessage(content=request.message)]
 
-    print(f"Total messages being sent to graph: {len(lc_messages)}")
-
     graph_state = build_initial_graph_state(lc_messages, trip_context_dict)
 
+    # ------------------------------------------
+    # Stream SSE
+    # ------------------------------------------
     return StreamingResponse(
         graph_token_stream(
             graph=graph,
