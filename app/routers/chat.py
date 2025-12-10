@@ -259,7 +259,7 @@ async def graph_token_stream(
 
 async def graph_token_stream_anon(
     message: str,
-    trip_context: Optional[dict] = None,
+    trip_context: Optional[TripContext] = None,
 ) -> AsyncGenerator[str, None]:
     """Stream for anonymous users - no DB persistence"""
     message_id = f"msg_{uuid.uuid4()}"
@@ -269,7 +269,8 @@ async def graph_token_stream_anon(
     yield sse_event({"type": "start", "messageId": message_id})
 
     lc_messages = [HumanMessage(content=message)]
-    graph_state = build_initial_graph_state(lc_messages, trip_context)
+    trip_context_dict = trip_context.model_dump() if trip_context else None
+    graph_state = build_initial_graph_state(lc_messages, trip_context_dict)
     graph = get_graph()
 
     async for chunk in graph.astream(
@@ -318,9 +319,7 @@ async def create_chat_message_stream(
     user_id = resolve_user_id(current_user)
     is_anonymous = user_id.startswith("anon_")
     print(f"trip context: {request.trip_context}")
-    # ------------------------------------------
-    # Anonymous users → no DB reads/writes
-    # ------------------------------------------
+    # Anonymous users. ain't saving info in db
     if is_anonymous:
         return StreamingResponse(
             graph_token_stream_anon(
@@ -335,9 +334,6 @@ async def create_chat_message_stream(
             },
         )
 
-    # ------------------------------------------
-    # Authenticated user → create or retrieve chat
-    # ------------------------------------------
     chat = await get_or_create_chat(
         db=db,
         user_id=user_id,
@@ -345,21 +341,15 @@ async def create_chat_message_stream(
         first_message=request.message,
     )
 
-    await db.commit()
-    print(f"✔ chat committed: {chat.id}")
-
-    # ------------------------------------------
-    # Save trip context
-    # ------------------------------------------
     trip_context_dict = await upsert_trip_context(
         db,
         chat_id=chat.id,
         trip_context_request=request.trip_context,
     )
 
-    # ------------------------------------------
-    # Load existing thread state from checkpointer
-    # ------------------------------------------
+    await db.commit()
+    print(f"✔ chat and trip context committed: {chat.id}")
+
     graph = get_graph()
     config = {"configurable": {"thread_id": str(chat.id)}}
     state = await graph.aget_state(config)
@@ -372,9 +362,6 @@ async def create_chat_message_stream(
 
     graph_state = build_initial_graph_state(lc_messages, trip_context_dict)
 
-    # ------------------------------------------
-    # Stream SSE
-    # ------------------------------------------
     return StreamingResponse(
         graph_token_stream(
             graph=graph,

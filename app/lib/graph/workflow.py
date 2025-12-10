@@ -31,15 +31,12 @@ def build_workflow() -> StateGraph:
     workflow.add_edge("receive_message", "classify")
     workflow.add_conditional_edges("classify", dispatch_sources)
 
-    # All search nodes lead to generate_response
     workflow.add_edge("visa_search", "generate_response")
     workflow.add_edge("web_search", "generate_response")
     workflow.add_edge("rag_search", "generate_response")
 
-    # Generate → Relevance check
     workflow.add_edge("generate_response", "relevance_check")
 
-    # After relevance check: retry or stream
     workflow.add_conditional_edges(
         "relevance_check",
         should_retry_or_stream,
@@ -49,7 +46,6 @@ def build_workflow() -> StateGraph:
         },
     )
 
-    # Stream → End
     workflow.add_edge("stream_response", END)
 
     return workflow
