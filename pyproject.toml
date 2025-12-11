@@ -19,7 +19,7 @@ dependencies = [
     "psycopg2-binary>=2.9.11",
     "tavily>=1.1.0",
     "uvicorn>=0.38.0",
-     "unstructured[pdf]>=0.18.21",
+    "unstructured[pdf]>=0.18.21",
 ]
 
 [project.optional-dependencies]

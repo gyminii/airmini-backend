@@ -3,8 +3,9 @@ from langchain_community.document_loaders import TextLoader
 from app.lib.rag.vectorstore import add_documents
 from cleantext import clean
 from langchain_core.documents import Document
-from app.lib.rag.vectorstore import remove_redundancy
+
 from crawl4ai import AsyncWebCrawler, BrowserConfig, CrawlerRunConfig
+from app.lib.rag.config import redundancy_filter
 
 
 # ingestion.py
@@ -49,7 +50,7 @@ async def ingest_pdf(file_path: str) -> dict:
         doc.page_content = normalize_page_content(doc.page_content)
 
     chunks = text_splitter.split_documents(documents)
-    filtered_chunks = await remove_redundancy.atransform_documents(chunks)
+    filtered_chunks = await redundancy_filter.atransform_documents(chunks)
 
     texts = [chunk.page_content for chunk in filtered_chunks]
     metadatas = [
@@ -101,7 +102,7 @@ async def ingest_url(url: str) -> dict:
 
     document = Document(page_content=content, metadata={"source": url, "type": "web"})
     chunks = text_splitter.split_documents([document])
-    filtered_chunks = await remove_redundancy.atransform_documents(chunks)
+    filtered_chunks = await redundancy_filter.atransform_documents(chunks)
 
     texts = [chunk.page_content for chunk in filtered_chunks]
     metadatas = [{"source": url, "type": "web"} for chunk in filtered_chunks]
@@ -117,7 +118,7 @@ async def ingest_text_file(file_path: str) -> dict:
         doc.page_content = normalize_page_content(doc.page_content)
 
     chunks = text_splitter.split_documents(documents)
-    filtered_chunks = await remove_redundancy.atransform_documents(chunks)
+    filtered_chunks = await redundancy_filter.atransform_documents(chunks)
 
     texts = [chunk.page_content for chunk in filtered_chunks]
     metadatas = [{"source": file_path, "type": "text"} for chunk in filtered_chunks]
