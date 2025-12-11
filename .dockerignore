@@ -3,28 +3,41 @@ __pycache__/
 *.pyc
 *.pyo
 *.pyd
+.pytest_cache/
 
 # Environments
 .venv/
 venv/
 env/
+.env
 
 # VCS
 .git
 .gitignore
+.github/
 
 # OS
 .DS_Store
+Thumbs.db
 
 # IDE/Editor
 .vscode/
 .idea/
+*.swp
+*.swo
 
 # Local data
 data/
 tests/
 notebooks/
 *.log
+*.sqlite
 
-# Node junk (if any)
-node_modules/
+# Documentation
+README.md
+docs/
+
+# CI/CD
+.dockerignore
+Dockerfile*
+docker-compose*.yml

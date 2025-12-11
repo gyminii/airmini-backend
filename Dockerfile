@@ -13,11 +13,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     poppler-utils \
     tesseract-ocr \
     && rm -rf /var/lib/apt/lists/*
-# Download and install uv
+
 ADD https://astral.sh/uv/install.sh /uv-installer.sh
 RUN sh /uv-installer.sh && rm /uv-installer.sh
-
-# Ensure uv is on PATH
 ENV PATH="/root/.local/bin/:$PATH"
 
 COPY pyproject.toml uv.lock* ./
@@ -30,4 +28,4 @@ COPY . .
 
 EXPOSE 8000
 
-CMD ["uv", "run", "--", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "$PORT"]
+CMD ["uv", "run", "--", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
