@@ -1,6 +1,6 @@
 import asyncio
 
-from app.lib.rag.ingestion import ingest_documents_batch
+from app.lib.rag.ingestion.core import ingest_documents_batch
 
 SOURCES = [
     # ============================================
@@ -195,8 +195,8 @@ PDFS = [
 
 async def main():
     print(" Starting document ingestion...\n")
-    print(f" Total sources to process: {len(PDFS)}\n")
-    await ingest_documents_batch(PDFS)
+    print(f" Total sources to process: {len(SOURCES)}\n")
+    await ingest_documents_batch(SOURCES)
     print("\n Ingestion complete!")
 
 

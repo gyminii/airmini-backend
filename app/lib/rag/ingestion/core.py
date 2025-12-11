@@ -1,7 +1,6 @@
 from cleantext import clean
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
-from app.lib.rag.config import redundancy_filter
 from app.lib.rag.vectorstore import add_documents
 
 
@@ -33,9 +32,8 @@ text_splitter = RecursiveCharacterTextSplitter(
 
 async def ingest_documents_batch(sources: list[dict]):
     """Batch ingest multiple document sources"""
-    from .pdf import ingest_pdf
-    from .web import ingest_url
-    from .text import ingest_text_file
+
+    from app.lib.rag.ingestion import ingest_text_file, ingest_url, ingest_pdf
 
     all_texts = []
     all_metadatas = []

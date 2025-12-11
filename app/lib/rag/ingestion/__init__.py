@@ -1,7 +1,9 @@
-from .core import ingest_documents_batch
+from .core import (
+    ingest_documents_batch,
+)
 from .pdf import ingest_pdf
-from .web import ingest_url
 from .text import ingest_text_file
+from .web import ingest_url
 
 __all__ = [
     "ingest_documents_batch",
