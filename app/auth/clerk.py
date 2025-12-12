@@ -25,6 +25,7 @@ def _authenticate_and_get_user_details(request: Request) -> Dict[str, str]:
             AuthenticateRequestOptions(
                 authorized_parties=[
                     "http://localhost:3000",  # dev
+                    "https://airmini-frontend.vercel.app",
                     # "https://your-prod-domain.com",  # add prod origin here
                 ],
             ),
