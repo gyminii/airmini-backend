@@ -1,0 +1,76 @@
+name: Deploy to EC2
+
+on:
+  push:
+    branches:
+      - main # or master, whatever your main branch is
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Deploy to EC2
+        env:
+          EC2_HOST: ${{ vars.EC2_HOST }}
+          EC2_USER: ${{ vars.EC2_USER }}
+          EC2_SSH_KEY: ${{ secrets.EC2_SSH_KEY }}
+          # Application secrets
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          CLERK_PUBLISHABLE_KEY: ${{ secrets.CLERK_PUBLISHABLE_KEY }}
+          CLERK_SECRET_KEY: ${{ secrets.CLERK_SECRET_KEY }}
+          LANGCHAIN_API_KEY: ${{ secrets.LANGCHAIN_API_KEY }}
+          RAPID_API_KEY: ${{ secrets.RAPID_API_KEY }}
+          TAVILY_API_KEY: ${{ secrets.TAVILY_API_KEY }}
+          UNSTRUCTURED_API_KEY: ${{ secrets.UNSTRUCTURED_API_KEY }}
+          # Application variables
+          LANGCHAIN_ENDPOINT: ${{ vars.LANGCHAIN_ENDPOINT }}
+          LANGCHAIN_PROJECT: ${{ vars.LANGCHAIN_PROJECT }}
+          LANGCHAIN_TRACING_V2: ${{ vars.LANGCHAIN_TRACING_V2 }}
+          OPENAI_MODEL: ${{ vars.OPENAI_MODEL }}
+          RAPIDAPI_HOST: ${{ vars.RAPIDAPI_HOST }}
+        run: |
+          # Setup SSH
+          mkdir -p ~/.ssh
+          echo "$EC2_SSH_KEY" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H $EC2_HOST >> ~/.ssh/known_hosts
+
+          # Deploy to EC2
+          ssh -i ~/.ssh/id_rsa $EC2_USER@$EC2_HOST << 'EOF'
+            cd ~/airmini-backend
+            git pull origin main
+            
+            # Stop and remove old container
+            docker stop airmini || true
+            docker rm airmini || true
+            
+            # Build new image
+            docker build -t airmini-backend .
+            
+            # Run new container with environment variables
+            docker run -d \
+              -p 8000:8000 \
+              -e OPENAI_API_KEY='${{ secrets.OPENAI_API_KEY }}' \
+              -e DATABASE_URL='${{ secrets.DATABASE_URL }}' \
+              -e CLERK_PUBLISHABLE_KEY='${{ secrets.CLERK_PUBLISHABLE_KEY }}' \
+              -e CLERK_SECRET_KEY='${{ secrets.CLERK_SECRET_KEY }}' \
+              -e LANGCHAIN_API_KEY='${{ secrets.LANGCHAIN_API_KEY }}' \
+              -e RAPID_API_KEY='${{ secrets.RAPID_API_KEY }}' \
+              -e TAVILY_API_KEY='${{ secrets.TAVILY_API_KEY }}' \
+              -e UNSTRUCTURED_API_KEY='${{ secrets.UNSTRUCTURED_API_KEY }}' \
+              -e LANGCHAIN_ENDPOINT='${{ vars.LANGCHAIN_ENDPOINT }}' \
+              -e LANGCHAIN_PROJECT='${{ vars.LANGCHAIN_PROJECT }}' \
+              -e LANGCHAIN_TRACING_V2='${{ vars.LANGCHAIN_TRACING_V2 }}' \
+              -e OPENAI_MODEL='${{ vars.OPENAI_MODEL }}' \
+              -e RAPIDAPI_HOST='${{ vars.RAPIDAPI_HOST }}' \
+              --name airmini \
+              airmini-backend
+            
+            # Cleanup old images
+            docker image prune -f
+          EOF
