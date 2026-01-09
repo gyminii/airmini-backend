@@ -38,8 +38,8 @@ jobs:
           chmod 600 ~/.ssh/id_rsa
           ssh-keyscan -H $EC2_HOST >> ~/.ssh/known_hosts
 
-          # Deploy to EC2 (added -v for verbose and -o StrictHostKeyChecking=no)
-          ssh -v -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa $EC2_USER@$EC2_HOST << 'ENDSSH'
+          # Deploy to EC2
+          ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa $EC2_USER@$EC2_HOST bash << EOF
             cd ~/airmini-backend
             git pull origin main
             
@@ -50,21 +50,21 @@ jobs:
             
             docker run -d \
               -p 8000:8000 \
-              -e OPENAI_API_KEY="${OPENAI_API_KEY}" \
-              -e DATABASE_URL="${DATABASE_URL}" \
-              -e CLERK_PUBLISHABLE_KEY="${CLERK_PUBLISHABLE_KEY}" \
-              -e CLERK_SECRET_KEY="${CLERK_SECRET_KEY}" \
-              -e LANGCHAIN_API_KEY="${LANGCHAIN_API_KEY}" \
-              -e RAPID_API_KEY="${RAPID_API_KEY}" \
-              -e TAVILY_API_KEY="${TAVILY_API_KEY}" \
-              -e UNSTRUCTURED_API_KEY="${UNSTRUCTURED_API_KEY}" \
-              -e LANGCHAIN_ENDPOINT="${LANGCHAIN_ENDPOINT}" \
-              -e LANGCHAIN_PROJECT="${LANGCHAIN_PROJECT}" \
-              -e LANGCHAIN_TRACING_V2="${LANGCHAIN_TRACING_V2}" \
-              -e OPENAI_MODEL="${OPENAI_MODEL}" \
-              -e RAPIDAPI_HOST="${RAPIDAPI_HOST}" \
+              -e OPENAI_API_KEY='${OPENAI_API_KEY}' \
+              -e DATABASE_URL='${DATABASE_URL}' \
+              -e CLERK_PUBLISHABLE_KEY='${CLERK_PUBLISHABLE_KEY}' \
+              -e CLERK_SECRET_KEY='${CLERK_SECRET_KEY}' \
+              -e LANGCHAIN_API_KEY='${LANGCHAIN_API_KEY}' \
+              -e RAPID_API_KEY='${RAPID_API_KEY}' \
+              -e TAVILY_API_KEY='${TAVILY_API_KEY}' \
+              -e UNSTRUCTURED_API_KEY='${UNSTRUCTURED_API_KEY}' \
+              -e LANGCHAIN_ENDPOINT='${LANGCHAIN_ENDPOINT}' \
+              -e LANGCHAIN_PROJECT='${LANGCHAIN_PROJECT}' \
+              -e LANGCHAIN_TRACING_V2='${LANGCHAIN_TRACING_V2}' \
+              -e OPENAI_MODEL='${OPENAI_MODEL}' \
+              -e RAPIDAPI_HOST='${RAPIDAPI_HOST}' \
               --name airmini \
               airmini-backend
             
             docker image prune -f
-          ENDSSH
+          EOF
