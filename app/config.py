@@ -46,6 +46,10 @@ def get_settings() -> Settings:
         if database_url.startswith(prefix):
             database_url = "postgresql://" + database_url[len(prefix):]
             break
+    # Strip all libpq query params (sslmode, channel_binding, etc.)
+    # Each consumer adds its own driver and SSL config
+    from urllib.parse import urlparse, urlunparse
+    database_url = urlunparse(urlparse(database_url)._replace(query=""))
     return {
         "openai_apikey": openai_apikey,
         "openai_model": openai_model,

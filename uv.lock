@@ -157,12 +157,11 @@ dependencies = [
     { name = "psycopg2-binary" },
     { name = "python-dotenv" },
     { name = "tavily" },
-    { name = "unstructured", extra = ["pdf"] },
     { name = "uvicorn" },
 ]
 
 [package.optional-dependencies]
-dev = [
+ingestion = [
     { name = "unstructured", extra = ["docx", "pdf"] },
 ]
 
@@ -182,11 +181,10 @@ requires-dist = [
     { name = "psycopg2-binary", specifier = ">=2.9.11" },
     { name = "python-dotenv", specifier = ">=1.0.0" },
     { name = "tavily", specifier = ">=1.1.0" },
-    { name = "unstructured", extras = ["docx", "pdf"], marker = "extra == 'dev'", specifier = ">=0.18.21" },
-    { name = "unstructured", extras = ["pdf"], specifier = ">=0.18.21" },
+    { name = "unstructured", extras = ["docx", "pdf"], marker = "extra == 'ingestion'", specifier = ">=0.18.21" },
     { name = "uvicorn", specifier = ">=0.38.0" },
 ]
-provides-extras = ["dev"]
+provides-extras = ["dev", "ingestion"]
 
 [[package]]
 name = "alembic"
