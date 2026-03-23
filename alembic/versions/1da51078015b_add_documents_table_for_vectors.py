@@ -21,6 +21,9 @@ depends_on: Union[str, Sequence[str], None] = None
 
 def upgrade() -> None:
     """Upgrade schema."""
+    # Enable pgvector extension
+    op.execute("CREATE EXTENSION IF NOT EXISTS vector;")
+
     # Create documents table
     op.create_table(
         'documents',
@@ -46,3 +49,4 @@ def downgrade() -> None:
     """Downgrade schema."""
     op.drop_index('ix_documents_source', table_name='documents')
     op.drop_table('documents')
+    op.execute("DROP EXTENSION IF EXISTS vector;")

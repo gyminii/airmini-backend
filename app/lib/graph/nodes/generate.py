@@ -100,7 +100,8 @@ NEVER:
 Available information from {', '.join(state['sources_used'])} sources:
 {chr(10).join(sources_data)}
 
-Use these sources to provide accurate information when relevant."""
+Use these sources to provide accurate information when relevant.
+When referencing specific policies or rules, briefly indicate where the info comes from (e.g. "According to TSA guidelines..." or "Korean Air's policy states..."). Do not list raw URLs."""
 
     messages.append({"role": "system", "content": system_content})
 
@@ -114,30 +115,26 @@ Use these sources to provide accurate information when relevant."""
 
 
 async def generate_response(state: State, writer: StreamWriter):
-    """Generate response WITHOUT streaming - for validation"""
+    """Generate and stream response token by token directly from OpenAI"""
     retry_count = state.get("retry_count", 0)
     print(
         f"Generating response using sources: {state['sources_used']} (attempt {retry_count + 1})"
     )
 
+    writer({
+        "type": "thought",
+        "content": "Generating response..." if retry_count == 0 else "Refining response...",
+        "phase": "generating",
+    })
+
     messages = build_response_messages(state)
 
-    # Non-streaming generation for validation
-    response = await chat_model.ainvoke(messages)
-
     full_text = ""
-    if hasattr(response, "content"):
-        if isinstance(response.content, str):
-            full_text = response.content
-        elif isinstance(response.content, list):
-            full_text = "".join(
-                part.get("text", "")
-                for part in response.content
-                if isinstance(part, dict) and part.get("type") == "text"
-            )
+    async for chunk in chat_model.astream(messages):
+        token = chunk.content
+        if isinstance(token, str) and token:
+            writer(token)
+            full_text += token
 
     ai_msg = AIMessage(content=full_text)
-    return {
-        "messages": [ai_msg],
-        "pending_response": full_text,
-    }
+    return {"messages": [ai_msg]}

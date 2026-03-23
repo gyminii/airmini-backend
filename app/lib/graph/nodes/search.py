@@ -12,7 +12,8 @@ async def web_search(state: State, writer: StreamWriter):
     writer({"type": "thought", "content": "Searching the web...", "phase": "search"})
 
     query = state.get("query")
-    results = await retrieve_web_results(query)
+    trip_context = state.get("trip_context")
+    results = await retrieve_web_results(query, trip_context=trip_context)
     if results:
         count = len(results.get("results", []))
         writer(
@@ -30,28 +31,26 @@ async def web_search(state: State, writer: StreamWriter):
 
 
 async def rag_search(state: State, writer: StreamWriter):
-    writer(
-        {
-            "type": "thought",
-            "content": "Searching knowledge base...",
-            "phase": "knowledge",
-        }
-    )
+    writer({"type": "thought", "content": "Searching knowledge base...", "phase": "knowledge"})
 
     query = state["query"]
-    results = await retrieve_rag_results(query)
+    trip_context = state.get("trip_context")
+    results = await retrieve_rag_results(query, trip_context=trip_context)
 
-    writer(
-        {
-            "type": "thought",
-            "content": f"Found {len(results)} relevant documents",
-            "phase": "knowledge",
-        }
-    )
+    if results:
+        writer({"type": "thought", "content": f"Found {len(results)} relevant documents", "phase": "knowledge"})
+        return {"sources_used": ["rag"], "rag_results": results}
 
+    # No KB results — fall back to web search
+    writer({"type": "thought", "content": "No KB matches, searching the web...", "phase": "search"})
+    trip_context = state.get("trip_context")
+    web_results = await retrieve_web_results(query, trip_context=trip_context)
+    count = len(web_results.get("results", [])) if web_results else 0
+    writer({"type": "thought", "content": f"Found {count} web results", "phase": "search"})
     return {
-        "sources_used": ["rag"],
-        "rag_results": results,
+        "sources_used": ["rag", "web"],
+        "rag_results": [],
+        "web_results": web_results,
     }
 
 
@@ -63,7 +62,7 @@ async def visa_search(state: State, writer: StreamWriter):
     trip_context = state.get("trip_context")
 
     has_nationality = trip_context and trip_context.get("nationality_country_code")
-    has_destination = trip_context and trip_context.get("destination_city_or_airport")
+    has_destination = trip_context and trip_context.get("destination_country_code")
 
     if not has_nationality or not has_destination:
         missing = []

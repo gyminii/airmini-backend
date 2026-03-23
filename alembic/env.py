@@ -24,7 +24,8 @@ from app.database.models import *
 from app.config import get_settings
 
 settings = get_settings()
-config.set_main_option("sqlalchemy.url", settings["database_url"])
+db_url = settings["database_url"].replace("postgresql://", "postgresql+psycopg2://", 1)
+config.set_main_option("sqlalchemy.url", db_url)
 target_metadata = Base.metadata
 
 # other values from the config, defined by the needs of env.py,

@@ -1,4 +1,3 @@
-import json
 from typing import Optional, Dict, List
 
 
@@ -31,8 +30,12 @@ def format_web_sources(web_results: Optional[Dict]) -> List[str]:
         formatted.append(f"Summary: {web_results['answer']}\n")
 
     for i, result in enumerate(web_results.get("results", [])[:3], 1):
+        content = result.get("content", "")
+        if len(content) > 600:
+            content = content[:600] + "..."
         formatted.append(f"[Result {i}] {result.get('title', 'Untitled')}")
-        formatted.append(f"{result.get('content', '')[:300]}...\n")
+        formatted.append(f"URL: {result.get('url', '')}")
+        formatted.append(f"{content}\n")
 
     return formatted
 
@@ -42,7 +45,35 @@ def format_visa_sources(visa_results: Optional[Dict]) -> List[str]:
     if not visa_results:
         return ["Visa information not available."]
 
+    if visa_results.get("status") == "incomplete":
+        return [f"\n=== Visa Requirements ===\n{visa_results.get('message', '')}"]
+
     formatted = ["\n=== Visa Requirements ==="]
-    formatted.append(json.dumps(visa_results, indent=2))
+
+    # Map common RapidAPI visa response fields to readable labels
+    field_labels = {
+        "visa": "Visa required",
+        "visa_required": "Visa required",
+        "passport": "Passport country",
+        "destination": "Destination country",
+        "dur": "Allowed stay",
+        "stay_duration": "Allowed stay",
+        "admission_refused": "Admission refused",
+        "visa_on_arrival": "Visa on arrival",
+        "e_visa": "E-visa available",
+        "notes": "Notes",
+        "category": "Visa category",
+    }
+
+    for key, label in field_labels.items():
+        value = visa_results.get(key)
+        if value is not None and value != "":
+            formatted.append(f"- {label}: {value}")
+
+    # Include any remaining fields not in the map
+    known_keys = set(field_labels.keys())
+    for key, value in visa_results.items():
+        if key not in known_keys and value is not None and value != "":
+            formatted.append(f"- {key}: {value}")
 
     return formatted

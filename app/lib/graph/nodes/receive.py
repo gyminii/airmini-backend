@@ -7,6 +7,7 @@ async def receive_message(state: State, writer: StreamWriter):
     print(f"=== receive_message node ===")
     print(f"Messages count: {len(state['messages'])}")
     for i, msg in enumerate(state["messages"]):
-        print(f"  [{i}] {msg.__class__.__name__}: {msg.content[:50]}...")
+        preview = msg.content if isinstance(msg.content, str) else str(msg.content)
+        print(f"  [{i}] {msg.__class__.__name__}: {preview[:50]}...")
 
     return {"messages": state["messages"]}

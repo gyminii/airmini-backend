@@ -15,12 +15,12 @@ So the interesting problem: how do you build a system that knows when to check e
 LangGraph lets you define AI workflows as a graph — nodes are steps, edges are transitions. Instead of one prompt, you have a pipeline:
 
 ```
-receive_message → classify → dispatch_sources → generate_response → validate → stream
+receive_message → classify → dispatch_sources → generate_response
 ```
 
-The `classify` node is an LLM call that looks at the question and decides: does this need visa info? Web search? The knowledge base? All three? It returns a list of sources to query.
+The `classify` node is an LLM call that looks at the question and decides: does this need visa info? Web search? The knowledge base? All three? It returns flags for each.
 
-Then `dispatch_sources` fans out to multiple nodes in parallel — visa API, Tavily search, RAG retrieval. Results get aggregated and passed to `generate_response`.
+Then `dispatch_sources` fans out to whichever nodes are needed in parallel — visa API, Tavily search, RAG retrieval. Results get aggregated and passed to `generate_response`.
 
 Why not just stuff everything into one prompt? Token limits, latency, and accuracy. If I retrieve 10 documents from RAG, 5 web results, and visa data, that's a lot of context. Classification lets me only fetch what's relevant.
 
@@ -31,8 +31,10 @@ I have a knowledge base of travel documents — TSA rules, airline policies, air
 When a question comes in and the classifier says "check knowledge base," the RAG node:
 
 1. Embeds the query with OpenAI's embedding model
-2. Does a similarity search against the vector store
+2. Does a similarity search against the vector store, filtered by airline or country if that context is available
 3. Returns the top N relevant chunks
+
+If the vector store returns nothing, it falls back to web search automatically.
 
 Postgres might seem weird for vectors (why not Pinecone?), but I already have Postgres for chat history. One fewer service to manage. pgvector is fast enough for this scale.
 
@@ -41,10 +43,10 @@ Postgres might seem weird for vectors (why not Pinecone?), but I already have Po
 Getting documents into the vector store is its own thing. The ingestion script handles:
 
 - **PDFs** — Extracted with OCR fallback for scanned docs
-- **Web pages** — Crawled with crawl4ai (headless browser, handles JS-rendered content)
+- **Web pages** — Crawled with crawl4ai (headless browser, handles JS-rendered content). If crawl4ai fails or the site blocks headless browsers, it falls back to Tavily's Extract API
 - **Text files** — Straightforward
 
-Each document gets chunked (overlapping windows), embedded, and inserted. Metadata tracks the source URL so the LLM can cite it.
+Each document gets chunked (overlapping windows), embedded, and inserted. Metadata tracks the source URL, airline code, country code, and ingestion timestamp — so results can be filtered and cited.
 
 I pre-loaded TSA regulations, CATSA (Canadian security), and policies from Delta, United, Air Canada, Korean Air. Adding new sources is just running the ingestion script with a URL or file path.
 
@@ -58,40 +60,26 @@ The visa node calls this API, parses the response, and formats it for the LLM co
 
 For questions that need current info — "best time to visit Bali" or "COVID restrictions in Thailand" — I use Tavily. It's a search API built for LLMs, returns clean results without the SEO spam.
 
-The web search node queries Tavily, extracts the relevant snippets, and includes source URLs. The LLM can then synthesize an answer and cite where the info came from.
-
-### Response Validation Loop
-
-Here's the clever bit. After generating a response, there's a `relevance_check` node that evaluates: did we actually answer the question? Is the response coherent? If not, it retries with different sources — up to 5 times.
-
-This catches cases where the classifier made a bad call. Asked about visa requirements but classified it as general knowledge? First response will be vague, validation fails, retry with visa API enabled.
-
-Most questions resolve in 1-2 iterations. The retry loop is a safety net, not the happy path.
+The web search node queries Tavily, extracts the relevant snippets, and includes source URLs. The LLM then synthesizes an answer and cites where the info came from.
 
 ### Streaming with SSE
 
-Responses stream token-by-token via Server-Sent Events. The frontend opens a connection, and as the LLM generates text, it flows through.
+Responses stream token-by-token via Server-Sent Events. The frontend opens a connection, and as the LLM generates text, it flows through immediately — no waiting for the full response.
 
-LangGraph supports streaming natively. Each node can yield intermediate results. I use this to stream "thought phases" — what the system is doing at each step — before the final response starts.
+LangGraph supports streaming natively via `StreamWriter`. Each node writes custom events as it runs, so the frontend gets "thought" updates showing what the system is doing before the answer starts coming in.
 
-```python
-async for event in workflow.astream(state):
-    if event.type == "thought":
-        yield f"data: {json.dumps({'type': 'thought', 'phase': event.phase})}\n\n"
-    elif event.type == "token":
-        yield f"data: {json.dumps({'type': 'token', 'content': event.content})}\n\n"
-```
+The stream format follows the Vercel AI SDK UIMessageStream v1 protocol, so it works with the `useChat` hook out of the box.
 
 ### Trip Context
 
-The frontend sends trip details — nationality, destination, dates, cabin class. This gets stored per-chat and injected into every LLM call as system context.
+The frontend sends trip details — nationality, destination, dates, airline, cabin class. This gets stored per-chat and injected into every LLM call as system context.
 
 ```
-The user is a US citizen traveling from New York to Tokyo 
+The user is a US citizen traveling from New York to Tokyo
 on March 15, 2025, flying business class for leisure.
 ```
 
-Now the LLM doesn't have to ask clarifying questions. It just knows.
+Now the LLM doesn't have to ask clarifying questions. It just knows. The airline code and destination country also filter the knowledge base results, so you get Delta's baggage rules when flying Delta, not United's.
 
 ### Auth with Clerk (Optional)
 
@@ -106,35 +94,33 @@ Anonymous mode still works, you just don't get saved chats. Good for trying the 
 ```
 START
   ↓
-receive_message (parse input, load trip context)
+receive_message (parse input, checkpoint messages)
   ↓
 classify (LLM decides: visa? web? rag? combination?)
   ↓
-dispatch_sources (parallel fan-out)
+dispatch_sources (parallel fan-out based on classify flags)
   ├→ visa_search (RapidAPI)
   ├→ web_search (Tavily)
-  └→ rag_search (pgvector)
+  └→ rag_search (pgvector → falls back to web if empty)
   ↓
-generate_response (LLM synthesizes from sources)
-  ↓
-relevance_check (is this a good answer?)
-  ├→ NO: retry (back to classify, max 5x)
-  └→ YES: stream_final_response
+generate_response (LLM streams answer token by token)
   ↓
 END
 ```
 
-Each node is a Python async function. LangGraph handles the execution order, parallelism, and state passing.
+Each node is a Python async function. LangGraph handles execution order, parallelism, and state passing between nodes.
 
 ## Stuff I Learned
 
-**LangGraph state management is tricky** — The graph passes a state object between nodes. If you mutate it wrong, you get weird bugs. I ended up using immutable updates everywhere.
+**LangGraph state management is tricky** — The graph passes a state object between nodes. If you mutate it wrong, you get weird bugs. I ended up using immutable updates everywhere, and some fields use custom reducer functions.
+
+**Blocking calls will kill your async app** — FastAPI is async but a lot of libraries aren't. Database queries, vector similarity search, even some LLM client methods are sync under the hood. Everything that isn't natively async needs to go through `run_in_executor` to avoid blocking the event loop.
 
 **Embedding models matter** — Started with a cheaper embedding model, retrieval quality was mediocre. Switched to `text-embedding-3-small` and it got noticeably better. The cost difference is pennies.
 
-**Retry loops need escape hatches** — The validation retry loop can get stuck if the question is genuinely unanswerable. Had to add logic to detect "we've tried everything, just give the best response we have."
+**JS-heavy sites are a pain to scrape** — Airline sites (Delta, Korean Air) render everything client-side so standard HTTP scrapers get nothing. crawl4ai handles most of it with a headless browser. The ones that actively block headless browsers fall back to Tavily's Extract API.
 
-**SSE and CORS are annoying** — Streaming works differently than regular HTTP. Had to configure CORS specifically for SSE connections, and some proxies buffer the stream (breaks the real-time feel).
+**SSE and CORS are annoying** — Streaming works differently than regular HTTP. Some proxies buffer the stream which breaks the real-time feel. The Vercel AI SDK expects a specific event format too — getting that wrong gives you a 200 with no visible output.
 
 ## Stack
 
@@ -146,6 +132,8 @@ Each node is a Python async function. LangGraph handles the execution order, par
 | PostgreSQL + pgvector | Vector storage without another service |
 | SQLAlchemy (async) | ORM that doesn't block |
 | Alembic | Database migrations |
-| Tavily | Web search built for LLMs |
+| Tavily | Web search + Extract API for JS-heavy sites |
 | crawl4ai | Web scraping for document ingestion |
 | Clerk | Auth without building it myself |
+| Railway | Deployment |
+| Neon | Managed Postgres with pgvector |

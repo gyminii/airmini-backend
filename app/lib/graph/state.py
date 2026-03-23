@@ -32,13 +32,7 @@ class State(TypedDict):
 
     sources_used: Annotated[list[str], merge_sources]
 
-    relevance_passed: bool
-    retry_count: int
-
     # results container for each method
     rag_results: Optional[list[dict]]
     web_results: Optional[Dict]
     visa_results: Optional[Dict]
-
-    # pending response for streaming after validation
-    pending_response: Optional[str]

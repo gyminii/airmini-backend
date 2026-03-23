@@ -16,9 +16,16 @@ async def similarity_search(
     query: str,
     k: int = 5,
     score_threshold: float = 0.0,
+    filter_metadata: dict | None = None,
 ) -> list[dict]:
     """Search vector store for similar documents"""
-    results = vector_store.similarity_search_with_relevance_scores(query=query, k=k * 3)
+    loop = asyncio.get_running_loop()
+    results = await loop.run_in_executor(
+        None,
+        lambda: vector_store.similarity_search_with_relevance_scores(
+            query=query, k=k * 3, filter=filter_metadata
+        ),
+    )
 
     seen_content = set()
     unique_results = []
@@ -47,6 +54,38 @@ async def similarity_search(
     return unique_results
 
 
+async def get_ingested_sources() -> set[str]:
+    """Return set of source URLs/paths already stored in the vector store"""
+    from app.config import get_settings
+    settings = get_settings()
+    db_url = settings["database_url"]
+    if not db_url.startswith("postgresql+psycopg2://"):
+        db_url = "postgresql+psycopg2://" + db_url[db_url.index("://") + 3:]
+
+    def _query():
+        import psycopg2
+        try:
+            conn = psycopg2.connect(db_url)
+            try:
+                with conn.cursor() as cur:
+                    cur.execute("""
+                        SELECT DISTINCT metadata->>'source'
+                        FROM langchain_pg_embedding
+                        WHERE collection_id = (
+                            SELECT uuid FROM langchain_pg_collection WHERE name = 'documents'
+                        )
+                    """)
+                    return {row[0] for row in cur.fetchall() if row[0]}
+            finally:
+                conn.close()
+        except Exception as e:
+            print(f"Could not fetch ingested sources: {e}")
+            return set()
+
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(None, _query)
+
+
 async def add_documents(texts: list[str], metadatas: list[dict] = None):
     """Add documents to vector store after cleaning"""
     cleaned_texts = [sanitize_text(text) for text in texts]
@@ -65,7 +104,7 @@ async def add_documents(texts: list[str], metadatas: list[dict] = None):
     valid_texts = [item[0] for item in valid_data]
     valid_metadatas = [item[1] for item in valid_data]
 
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     await loop.run_in_executor(
         None, lambda: vector_store.add_texts(valid_texts, metadatas=valid_metadatas)
     )

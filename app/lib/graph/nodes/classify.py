@@ -122,9 +122,10 @@ async def classify_query(state: State, writer: StreamWriter):
     IMPORTANT: Output ONLY the JSON object with no markdown formatting.
     """
 
-    response = chat_model.invoke([HumanMessage(content=prompt)])
+    response = await chat_model.ainvoke([HumanMessage(content=prompt)])
 
-    content = response.content.strip()
+    raw = response.content
+    content = (raw if isinstance(raw, str) else " ".join(str(p) for p in raw)).strip()
     if content.startswith("```"):
         content = content.split("```")[1]
         if content.startswith("json"):
@@ -144,12 +145,12 @@ async def classify_query(state: State, writer: StreamWriter):
             "sources_used": [],
         }
     except json.JSONDecodeError:
-        print(f"Failed to parse: {response.content}")
+        print(f"Failed to parse: {content[:100]}")
         return {
             "query": query,
             "query_type": "general",
             "needs_visa_api": False,
-            "needs_web_search": False,
+            "needs_web_search": True,
             "needs_rag": False,
             "sources_used": [],
         }

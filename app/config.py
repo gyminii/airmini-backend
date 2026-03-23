@@ -1,6 +1,4 @@
-from typing import TypedDict
-from httpx import stream
-from pydantic import SecretStr
+from typing import TypedDict, Optional
 from dotenv import load_dotenv
 import os
 
@@ -9,15 +7,15 @@ load_dotenv()
 
 
 class Settings(TypedDict):
-    openai_apikey: SecretStr
+    openai_apikey: str
     openai_model: str
     rapid_apikey: str
-    rapid_apihost: str
+    rapid_apihost: Optional[str]
 
     tavily_apikey: str
     clerk_secretKey: str
     clerk_publishablekey: str
-    database_url: SecretStr
+    database_url: str
 
 
 def get_settings() -> Settings:
@@ -36,13 +34,18 @@ def get_settings() -> Settings:
     if not rapid_apikey:
         raise ValueError("No rapid api key found in environment variables")
     if not tavily_apikey:
-        raise ValueError("No rapid api key found in environment variables")
+        raise ValueError("No Tavily api key found in environment variables")
     if not clerk_secretKey:
         raise ValueError("No Clerk secret key found in environment variables")
     if not clerk_publishablekey:
         raise ValueError("No Clerk publishable key found in environment variables")
     if not database_url:
-        raise ValueError("No Datbase URL found in environment variables")
+        raise ValueError("No Database URL found in environment variables")
+    # Normalize to plain postgresql:// so each consumer can add its own driver
+    for prefix in ("postgresql+psycopg2://", "postgresql+asyncpg://"):
+        if database_url.startswith(prefix):
+            database_url = "postgresql://" + database_url[len(prefix):]
+            break
     return {
         "openai_apikey": openai_apikey,
         "openai_model": openai_model,

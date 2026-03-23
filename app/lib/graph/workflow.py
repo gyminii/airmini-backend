@@ -8,10 +8,8 @@ from app.lib.graph.nodes import (
     rag_search,
     visa_search,
     generate_response,
-    relevance_check,
-    stream_final_response,
 )
-from app.lib.graph.routing import dispatch_sources, should_retry_or_stream
+from app.lib.graph.routing import dispatch_sources
 
 
 def build_workflow() -> StateGraph:
@@ -24,8 +22,6 @@ def build_workflow() -> StateGraph:
     workflow.add_node("web_search", web_search)
     workflow.add_node("rag_search", rag_search)
     workflow.add_node("generate_response", generate_response)
-    workflow.add_node("relevance_check", relevance_check)
-    workflow.add_node("stream_response", stream_final_response)
 
     workflow.add_edge(START, "receive_message")
     workflow.add_edge("receive_message", "classify")
@@ -35,18 +31,7 @@ def build_workflow() -> StateGraph:
     workflow.add_edge("web_search", "generate_response")
     workflow.add_edge("rag_search", "generate_response")
 
-    workflow.add_edge("generate_response", "relevance_check")
-
-    workflow.add_conditional_edges(
-        "relevance_check",
-        should_retry_or_stream,
-        {
-            "stream": "stream_response",
-            "retry": "classify",
-        },
-    )
-
-    workflow.add_edge("stream_response", END)
+    workflow.add_edge("generate_response", END)
 
     return workflow
 
