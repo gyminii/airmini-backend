@@ -1,3 +1,4 @@
+import json
 from langchain_core.messages import HumanMessage, AIMessage
 from langgraph.types import StreamWriter
 
@@ -135,6 +136,32 @@ async def generate_response(state: State, writer: StreamWriter):
         if isinstance(token, str) and token:
             writer(token)
             full_text += token
+
+    # Generate contextual follow-up suggestions
+    try:
+        suggestions_prompt = (
+            f"The user asked: {state.get('query', '')}\n\n"
+            f"The assistant replied: {full_text[:600]}\n\n"
+            "Generate exactly 3 short follow-up questions the user might naturally ask next. "
+            "Questions must be specific to what was just discussed, travel-related, and under 10 words each. "
+            "Return ONLY a JSON array of 3 strings with no other text.\n"
+            'Example: ["What documents do I need?", "How long does it take?", "Are there any fees?"]'
+        )
+        suggestions_response = await chat_model.ainvoke(
+            [HumanMessage(content=suggestions_prompt)]
+        )
+        raw = suggestions_response.content
+        raw_text = (raw if isinstance(raw, str) else " ".join(str(p) for p in raw)).strip()
+        if raw_text.startswith("```"):
+            raw_text = raw_text.split("```")[1]
+            if raw_text.startswith("json"):
+                raw_text = raw_text[4:]
+            raw_text = raw_text.strip()
+        suggestions = json.loads(raw_text)
+        if isinstance(suggestions, list):
+            writer({"type": "suggestions", "suggestions": suggestions[:3]})
+    except Exception:
+        pass  # suggestions are non-critical, never fail the response
 
     ai_msg = AIMessage(content=full_text)
     return {"messages": [ai_msg]}

@@ -1,9 +1,26 @@
 import json
-from langchain_core.messages import HumanMessage
+from langchain_core.messages import HumanMessage, AIMessage
 from langgraph.types import StreamWriter
 
 from app.lib.llm import chat_model
 from app.lib.graph.state import State
+
+
+def _build_conversation_context(messages: list, last_n_pairs: int = 3) -> str:
+    """Extract the last N human/AI exchanges for classifier context."""
+    exchanges = []
+    for msg in messages:
+        if isinstance(msg, HumanMessage):
+            content = msg.content if isinstance(msg.content, str) else str(msg.content)
+            exchanges.append(f"User: {content[:300]}")
+        elif isinstance(msg, AIMessage):
+            content = msg.content if isinstance(msg.content, str) else str(msg.content)
+            exchanges.append(f"Assistant: {content[:300]}")
+
+    # Take the last N pairs (each pair = 2 items), excluding the very last user message
+    # (that's the current query, already shown separately)
+    recent = exchanges[-(last_n_pairs * 2 + 1):-1]
+    return "\n".join(recent) if recent else ""
 
 
 async def classify_query(state: State, writer: StreamWriter):
@@ -73,10 +90,19 @@ async def classify_query(state: State, writer: StreamWriter):
     "do I need a visa", "entry requirements", "documents needed" should trigger needs_visa_api: true.
     """
 
+    conversation_context = _build_conversation_context(state["messages"])
+    conversation_section = ""
+    if conversation_context:
+        conversation_section = f"""
+    RECENT CONVERSATION (use this to understand follow-up questions):
+{conversation_context}
+    """
+
     prompt = f"""
     You are analyzing a travel question. Determine what information sources are needed.
 
-    Question: {query}
+    Current question: {query}
+    {conversation_section}
     {trip_context_section}
     {retry_hint}
 
@@ -116,6 +142,11 @@ async def classify_query(state: State, writer: StreamWriter):
     - "What do I need?" → If destination exists, likely asking about visa/entry requirements
     - "Am I allowed?" → Could be visa or security depending on context
     - "Any restrictions?" → Check both visa and current travel advisories
+
+    FOLLOW-UP QUESTIONS: If the current question is vague ("Tell me more", "What are the alternatives?",
+    "Any other options?", "What about X?") look at the recent conversation to understand what topic
+    it refers to, then classify based on that topic. Never redirect a follow-up as off-topic if the
+    prior conversation was travel-related.
 
     query_type can be: "visa", "general", "security", "baggage", "customs", "weather", "health", "transit", "country_specific"
 

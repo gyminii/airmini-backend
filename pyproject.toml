@@ -20,10 +20,10 @@ dependencies = [
     "python-dotenv>=1.0.0",
     "tavily>=1.1.0",
     "uvicorn>=0.38.0",
-    "unstructured[pdf]>=0.18.21",
 ]
 
 [project.optional-dependencies]
-dev = [
+dev = []
+ingestion = [
     "unstructured[docx,pdf]>=0.18.21",
 ]

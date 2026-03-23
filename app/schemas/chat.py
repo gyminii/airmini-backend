@@ -26,10 +26,16 @@ class TripContext(BaseModel):
     purpose: Optional[Literal["tourism", "business", "family", "study", "other"]] = None
 
 
+class MessageHistory(BaseModel):
+    role: Literal["user", "assistant"]
+    content: str
+
+
 class ChatRequest(BaseModel):
     message: str
     chat_id: Optional[str] = None
     trip_context: Optional[TripContext] = None
+    history: Optional[List[MessageHistory]] = None  # for anonymous / stateless clients
     stream: bool = False
 
 

@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
-from langchain_core.messages import HumanMessage
+from langchain_core.messages import HumanMessage, AIMessage
 from langgraph.types import RunnableConfig
 from typing import AsyncGenerator, Optional
 import uuid
@@ -127,6 +127,19 @@ async def upsert_trip_context(
     }
 
 
+def _build_lc_messages(history, current_message: str) -> list:
+    """Convert frontend history array + current message into LangChain messages."""
+    from app.schemas.chat import MessageHistory
+    lc = []
+    for item in (history or []):
+        if item.role == "user":
+            lc.append(HumanMessage(content=item.content))
+        else:
+            lc.append(AIMessage(content=item.content))
+    lc.append(HumanMessage(content=current_message))
+    return lc
+
+
 def build_initial_graph_state(
     lc_messages: list, trip_context_dict: Optional[dict]
 ) -> dict:
@@ -187,6 +200,13 @@ async def graph_token_stream(
                         },
                     }
                 )
+            elif isinstance(data, dict) and data.get("type") == "suggestions":
+                yield sse_event(
+                    {
+                        "type": "data-suggestions",
+                        "data": {"suggestions": data.get("suggestions", [])},
+                    }
+                )
             elif isinstance(data, str):
                 if not text_started:
                     yield sse_event({"type": "text-start", "id": text_id})
@@ -214,7 +234,7 @@ async def create_chat_message_stream(
 
     if is_anonymous:
         thread_id = f"anon_{uuid.uuid4()}"
-        lc_messages = [HumanMessage(content=request.message)]
+        lc_messages = _build_lc_messages(request.history, request.message)
         trip_context_dict = request.trip_context.model_dump() if request.trip_context else None
         graph_state = build_initial_graph_state(lc_messages, trip_context_dict)
         graph = get_graph()
@@ -248,7 +268,10 @@ async def create_chat_message_stream(
     config: RunnableConfig = {"configurable": {"thread_id": str(chat.id)}}
     state = await graph.aget_state(config)
 
-    if state and state.values.get("messages"):
+    if request.history is not None:
+        # Frontend history is authoritative — handles regeneration correctly
+        lc_messages = _build_lc_messages(request.history, request.message)
+    elif state and state.values.get("messages"):
         lc_messages = list(state.values["messages"])
         lc_messages.append(HumanMessage(content=request.message))
     else:

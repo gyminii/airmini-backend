@@ -26,12 +26,7 @@ async def retrieve_web_results(
     """Retrieve web search results for a query"""
     enriched = _enrich_query(query, trip_context)
     print(f"Searching web for: {enriched}")
-    results = await search_web(enriched, num_results)
-    if results:
-        print(
-            f" Web search success: '{enriched}' ({len(results.get('results', []))} results)"
-        )
-    return results
+    return await search_web(enriched, num_results)
 
 
 def _build_rag_filter(trip_context: Optional[Dict]) -> Optional[dict]:
