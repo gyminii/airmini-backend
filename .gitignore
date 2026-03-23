@@ -44,6 +44,7 @@ venv/
 .claude/
 CLAUDE.md
 CLAUDE_FRONTEND.md
+DEVLOG.md
 
 # -----------------------------
 # OS files
